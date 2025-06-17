@@ -1,7 +1,7 @@
 """Configuration management for SQL Agent."""
 
 from typing import Literal, Optional
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, computed_field
 from pydantic_settings import BaseSettings
 
 
@@ -14,13 +14,15 @@ class Settings(BaseSettings):
     debug: bool = Field(default=False, alias="DEBUG")
     
     # LLM Configuration
-    llm_provider: Literal["openai", "google", "local"] = Field(
-        default="openai", alias="LLM_PROVIDER"
+    llm_provider: Literal["openai", "google", "ollama", "auto"] = Field(
+        default="auto", alias="LLM_PROVIDER"
     )
     openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4", alias="OPENAI_MODEL")
     google_api_key: Optional[str] = Field(default=None, alias="GOOGLE_API_KEY")
     google_model: str = Field(default="gemini-pro", alias="GOOGLE_MODEL")
+    ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
+    ollama_model: str = Field(default="llama2", alias="OLLAMA_MODEL")
     
     # Database Configuration
     database_type: Literal["postgresql", "mysql", "sqlite"] = Field(
@@ -50,6 +52,21 @@ class Settings(BaseSettings):
     # Logging Configuration
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_format: str = Field(default="json", alias="LOG_FORMAT")
+    
+    @computed_field
+    @property
+    def effective_llm_provider(self) -> str:
+        """Determine the effective LLM provider based on availability."""
+        if self.llm_provider != "auto":
+            return self.llm_provider
+        
+        # Auto-detect based on available API keys and services
+        if self.openai_api_key:
+            return "openai"
+        elif self.google_api_key:
+            return "google"
+        else:
+            return "ollama"
     
     @field_validator("database_url")
     @classmethod
