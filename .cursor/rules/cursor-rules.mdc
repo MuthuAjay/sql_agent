@@ -1,0 +1,250 @@
+---
+description: Project Requirements
+globs: 
+alwaysApply: false
+---
+# SQL Agent - Cursor Rules
+
+You are an expert Python developer working on an AI-powered SQL Agent with multi-agent architecture, RAG, and MCP integration.
+
+## Project Overview
+This is a sophisticated SQL Agent that converts natural language to SQL queries, analyzes results, and creates visualizations. It uses:
+- Multi-agent system (Router, SQL, Analysis, Visualization agents)
+- Model Context Protocol (MCP) for database interactions
+- RAG with vector databases for intelligent context retrieval
+- Support for multiple LLM providers (OpenAI, Google, Local models)
+
+## Code Style & Standards
+
+### Python Standards
+- Use Python 3.11+ features
+- Follow PEP 8 with line length 88 (Black formatter)
+- Use type hints everywhere: `from typing import Optional, List, Dict, Any`
+- Use Pydantic v2 for data validation and settings
+- Prefer dataclasses for simple data structures
+- Use async/await for I/O operations
+
+### Architecture Patterns
+- **Dependency Injection**: Use dependency injection for all services
+- **Factory Pattern**: For LLM provider selection and database connections
+- **Observer Pattern**: For agent communication and state updates
+- **Repository Pattern**: For data access abstraction
+- **Strategy Pattern**: For different RAG retrieval strategies
+
+### Error Handling
+```python
+# Always use specific exceptions
+class SchemaNotFoundError(Exception): pass
+class QueryValidationError(Exception): pass
+
+# Use result types for operations that can fail
+from typing import Union, Literal
+Result = Union[Success[T], Error[str]]
+```
+
+## Key Technologies & Frameworks
+### Core Dependencies
+- **LangGraph**: For multi-agent workflows and state management
+- **LangChain**: For LLM abstractions and tools
+- **SQLAlchemy 2.0**: For database operations (async preferred)
+- **Pydantic v2**: For data validation and settings
+- **FastAPI**: For REST API endpoints
+- **ChromaDB/Qdrant**: For vector storage
+
+### MCP Integration
+- Use official Python MCP SDK
+- Create separate MCP servers for database, schema, and visualization
+- Follow MCP protocol standards for tool definitions
+- Handle MCP errors gracefully with retries
+
+### Vector Database Usage
+```python
+# Preferred pattern for RAG retrieval
+async def retrieve_schema_context(query: str, limit: int = 5) -> List[SchemaContext]:
+    embeddings = await self.embedding_service.embed_query(query)
+    results = await self.vector_store.similarity_search(
+        embeddings, limit=limit, filter={"type": "schema"}
+    )
+    return [SchemaContext.from_vector_result(r) for r in results]
+```
+
+## File Organization Principles
+
+### Agent Structure
+- Each agent should be self-contained with clear interfaces
+- Use `BaseAgent` abstract class for consistency
+- Implement agent communication through shared state
+- Log all agent decisions and reasoning
+
+### Configuration Management
+- Use environment variables for secrets
+- Pydantic Settings for configuration classes
+- Support multiple environments (dev, staging, prod)
+- Validate all configurations at startup
+
+### Database Layer
+- Abstract database operations behind repositories
+- Support multiple database types (PostgreSQL, MySQL, SQLite)
+- Use connection pooling for performance
+- Implement query timeouts and limits
+
+## Code Examples & Patterns
+
+### Agent Implementation
+```python
+from abc import ABC, abstractmethod
+from typing import Dict, Any
+from pydantic import BaseModel
+
+class AgentState(BaseModel):
+    query: str
+    context: Dict[str, Any] = {}
+    results: Optional[Dict[str, Any]] = None
+
+class BaseAgent(ABC):
+    def __init__(self, llm_provider: LLMProvider, config: AgentConfig):
+        self.llm = llm_provider
+        self.config = config
+        
+    @abstractmethod
+    async def process(self, state: AgentState) -> AgentState:
+        pass
+```
+
+### MCP Server Pattern
+```python
+from mcp import Server, Tool
+from mcp.types import TextContent
+
+class DatabaseMCPServer:
+    def __init__(self, db_manager: DatabaseManager):
+        self.db = db_manager
+        self.server = Server("sql-database")
+        
+    @self.server.tool("execute_query")
+    async def execute_query(self, sql: str, limit: int = 100) -> TextContent:
+        # Implementation with proper validation and limits
+        pass
+```
+
+### RAG Integration
+```python
+class SchemaRAGService:
+    def __init__(self, vector_store: VectorStore, embeddings: EmbeddingService):
+        self.vector_store = vector_store
+        self.embeddings = embeddings
+    
+    async def get_relevant_schemas(self, query: str) -> List[SchemaContext]:
+        query_embedding = await self.embeddings.embed_query(query)
+        return await self.vector_store.similarity_search(query_embedding)
+```
+
+## Security & Best Practices
+
+### SQL Security
+- Always use parameterized queries
+- Implement query validation before execution
+- Set query timeouts and row limits
+- Log all executed queries for audit
+- Validate user permissions for database access
+
+### LLM Security
+- Sanitize inputs to prevent prompt injection
+- Implement rate limiting for API calls
+- Cache embeddings to reduce costs
+- Use environment variables for API keys
+- Implement fallback mechanisms for API failures
+
+### Vector Database Security
+- Validate vector inputs before storage
+- Implement access controls for sensitive data
+- Regular backup of vector indices
+- Monitor storage usage and performance
+
+## Testing Strategy
+
+### Unit Tests
+- Test each agent independently with mocked dependencies
+- Test vector retrieval with sample embeddings
+- Test MCP server responses
+- Test error handling and edge cases
+
+### Integration Tests
+- Test full agent workflows end-to-end
+- Test database connections and schema retrieval
+- Test LLM provider switching
+- Test vector store operations
+
+### Example Test Pattern
+```python
+import pytest
+from unittest.mock import AsyncMock
+
+@pytest.fixture
+async def sql_agent():
+    mock_llm = AsyncMock()
+    mock_vector_store = AsyncMock()
+    return SQLAgent(llm=mock_llm, vector_store=mock_vector_store)
+
+async def test_sql_generation(sql_agent):
+    # Test implementation
+    pass
+```
+
+## Performance Considerations
+
+### Async Operations
+- Use async/await for all I/O operations
+- Implement connection pooling for databases
+- Cache frequently accessed schema information
+- Use background tasks for vector indexing
+
+### Memory Management
+- Stream large query results instead of loading in memory
+- Implement pagination for API responses
+- Clear conversation history after session limits
+- Monitor vector store memory usage
+
+### Monitoring & Logging
+```python
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+# Always log agent decisions
+await logger.ainfo("agent_decision", 
+                   agent="sql_agent", 
+                   query=user_query,
+                   generated_sql=sql_query,
+                   execution_time=duration)
+```
+
+## Development Workflow
+
+### Code Organization
+- Keep agents in separate files with clear responsibilities
+- Use dependency injection for all external services
+- Implement proper error boundaries between components
+- Document all public interfaces with docstrings
+
+### Environment Setup
+- Use Poetry for dependency management
+- Support multiple Python versions (3.11+)
+- Include development dependencies (black, pytest, mypy)
+- Provide Docker setup for consistent environments
+
+### Debugging
+- Log all agent state transitions
+- Include request IDs for tracing across components
+- Implement health checks for all external services
+- Use structured logging for better observability
+
+When generating code, always consider:
+1. Which agent should handle this functionality?
+2. How does this integrate with the MCP architecture?
+3. What vector database context is needed?
+4. How will this handle multiple LLM providers?
+5. What are the security implications?
+6. How will this be tested?
+
+Always write production-ready code with proper error handling, logging, and type hints.
