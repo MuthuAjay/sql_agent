@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     )
     vector_db_url: str = Field(default="http://localhost:8000", alias="VECTOR_DB_URL")
     vector_db_collection: str = Field(default="schema_context", alias="VECTOR_DB_COLLECTION")
+    chroma_db_path: Optional[str] = Field(default="./chroma_db", alias="CHROMA_DB_PATH")
     
     # MCP Configuration
     mcp_server_host: str = Field(default="localhost", alias="MCP_SERVER_HOST")

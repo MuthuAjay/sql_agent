@@ -11,6 +11,7 @@ from .analysis import AnalysisAgent
 from .viz import VisualizationAgent
 from ..core.state import AgentState
 from ..core.llm import LLMFactory
+from ..rag import context_manager
 from ..utils.logging import get_logger
 
 
@@ -31,6 +32,24 @@ class AgentOrchestrator:
         
         # Create workflow graph
         self.workflow = self._create_workflow()
+        
+        # RAG initialization flag
+        self._rag_initialized = False
+    
+    async def initialize(self) -> None:
+        """Initialize the orchestrator and RAG components."""
+        try:
+            self.logger.info("initializing_orchestrator")
+            
+            # Initialize RAG components
+            await context_manager.initialize()
+            self._rag_initialized = True
+            
+            self.logger.info("orchestrator_initialized", rag_initialized=True)
+            
+        except Exception as e:
+            self.logger.error("orchestrator_initialization_failed", error=str(e))
+            raise
     
     def _create_workflow(self) -> StateGraph:
         """Create the LangGraph workflow."""
@@ -97,6 +116,10 @@ class AgentOrchestrator:
     
     async def process_query(self, query: str, database_name: Optional[str] = None) -> AgentState:
         """Process a natural language query through the agent workflow."""
+        # Ensure RAG is initialized
+        if not self._rag_initialized:
+            await self.initialize()
+        
         # Create initial state
         session_id = str(uuid.uuid4())
         state = AgentState(
@@ -110,7 +133,8 @@ class AgentOrchestrator:
             "orchestrator_query_start",
             session_id=session_id,
             query=query,
-            database_name=database_name
+            database_name=database_name,
+            rag_initialized=self._rag_initialized
         )
         
         try:
@@ -127,7 +151,8 @@ class AgentOrchestrator:
                 session_id=session_id,
                 processing_time=final_state.processing_time,
                 has_errors=final_state.has_errors(),
-                error_count=len(final_state.errors)
+                error_count=len(final_state.errors),
+                rag_context_count=len(final_state.schema_context) if final_state.schema_context else 0
             )
             
             return final_state

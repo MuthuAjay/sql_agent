@@ -6,6 +6,7 @@ from langchain.schema import HumanMessage, SystemMessage
 from .base import BaseAgent
 from ..core.state import AgentState, QueryResult, SchemaContext
 from ..core.database import db_manager
+from ..rag import context_manager
 from ..utils.logging import log_query_execution
 
 
@@ -27,9 +28,9 @@ class SQLAgent(BaseAgent):
         self.logger.info("sql_agent_processing", query=state.query)
         
         try:
-            # Get schema context if not already available
+            # Get schema context using RAG if not already available
             if not state.schema_context:
-                state.schema_context = await self._get_schema_context(state.query)
+                state.schema_context = await self._get_schema_context_with_rag(state.query)
             
             # Generate SQL from natural language
             generated_sql = await self._generate_sql(state.query, state.schema_context)
@@ -61,7 +62,8 @@ class SQLAgent(BaseAgent):
                 "sql_generation_complete",
                 sql=generated_sql,
                 row_count=query_result.row_count,
-                execution_time=query_result.execution_time
+                execution_time=query_result.execution_time,
+                rag_context_count=len(state.schema_context)
             )
             
         except Exception as e:
@@ -70,10 +72,32 @@ class SQLAgent(BaseAgent):
         
         return state
     
-    async def _get_schema_context(self, query: str) -> List[SchemaContext]:
-        """Get relevant schema context for the query."""
-        # This is a simplified implementation
-        # In Phase 3, this will use RAG with vector database
+    async def _get_schema_context_with_rag(self, query: str) -> List[SchemaContext]:
+        """Get relevant schema context for the query using RAG."""
+        try:
+            # Use RAG context manager to retrieve relevant schema context
+            contexts = await context_manager.retrieve_schema_context(
+                query=query,
+                limit=5,  # Get top 5 most relevant contexts
+                min_similarity=0.6  # Minimum similarity threshold
+            )
+            
+            self.logger.info(
+                "rag_context_retrieved",
+                query=query[:100],
+                context_count=len(contexts),
+                contexts=[f"{ctx.table_name}.{ctx.column_name or 'table'}" for ctx in contexts]
+            )
+            
+            return contexts
+            
+        except Exception as e:
+            self.logger.error("rag_context_failed", error=str(e))
+            # Fallback to simple keyword matching
+            return await self._get_schema_context_fallback(query)
+    
+    async def _get_schema_context_fallback(self, query: str) -> List[SchemaContext]:
+        """Fallback schema context retrieval using simple keyword matching."""
         try:
             schema_info = await db_manager.get_schema_info()
             
@@ -105,7 +129,7 @@ class SQLAgent(BaseAgent):
             return schema_context
             
         except Exception as e:
-            self.logger.error("schema_context_failed", error=str(e))
+            self.logger.error("fallback_schema_context_failed", error=str(e))
             return []
     
     async def _generate_sql(self, query: str, schema_context: List[SchemaContext]) -> str:
