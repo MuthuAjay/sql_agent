@@ -26,7 +26,6 @@ def get_database() -> Any:
 @router.get("/", response_model=SchemaResponse)
 async def get_schema(
     database_name: Optional[str] = None,
-    req: Optional[Request] = None,
     database_manager = Depends(get_database)
 ) -> SchemaResponse:
     """
@@ -37,21 +36,21 @@ async def get_schema(
     """
     try:
         # Get schema information from database manager
-        schema_info = await database_manager.get_schema(database_name=database_name)
+        schema_info = await database_manager.get_schema_info()
         
         # Convert to API models
         tables = []
         total_columns = 0
         
-        for table_name, table_info in schema_info.get("tables", {}).items():
+        for table_name, table_info in schema_info.items():
             columns = []
-            for col_name, col_info in table_info.get("columns", {}).items():
+            for col_info in table_info.get("columns", []):
                 column = ColumnInfo(
-                    name=col_name,
-                    type=col_info.get("type", "unknown"),
-                    nullable=col_info.get("nullable", True),
-                    primary_key=col_info.get("primary_key", False),
-                    foreign_key=col_info.get("foreign_key")
+                    name=col_info.get("column_name", "unknown"),
+                    type=col_info.get("data_type", "unknown"),
+                    nullable=col_info.get("is_nullable", "YES") == "YES",
+                    primary_key=False,  # Would need additional query to determine
+                    foreign_key=None
                 )
                 columns.append(column)
                 total_columns += 1
@@ -59,15 +58,15 @@ async def get_schema(
             table = TableInfo(
                 name=table_name,
                 columns=columns,
-                row_count=table_info.get("row_count"),
-                description=table_info.get("description")
+                row_count=None,  # Would need additional query
+                description=None
             )
             tables.append(table)
         
         return SchemaResponse(
             database_name=database_name or "default",
             tables=tables,
-            relationships=schema_info.get("relationships", []),
+            relationships=[],  # Would need additional query
             total_tables=len(tables),
             total_columns=total_columns
         )
@@ -82,7 +81,6 @@ async def get_schema(
 @router.get("/tables", response_model=Dict[str, Any])
 async def get_tables(
     database_name: Optional[str] = None,
-    req: Optional[Request] = None,
     database_manager = Depends(get_database)
 ) -> Dict[str, Any]:
     """
@@ -92,15 +90,15 @@ async def get_tables(
     """
     try:
         # Get tables from database manager
-        tables_info = await database_manager.get_tables(database_name=database_name)
+        schema_info = await database_manager.get_schema_info()
         
         tables = []
-        for table_name, table_info in tables_info.items():
+        for table_name, table_info in schema_info.items():
             tables.append({
                 "name": table_name,
-                "column_count": len(table_info.get("columns", {})),
-                "row_count": table_info.get("row_count"),
-                "description": table_info.get("description")
+                "column_count": len(table_info.get("columns", [])),
+                "row_count": None,
+                "description": None
             })
         
         return {
@@ -120,7 +118,6 @@ async def get_tables(
 async def get_table_info(
     table_name: str,
     database_name: Optional[str] = None,
-    req: Optional[Request] = None,
     database_manager = Depends(get_database)
 ) -> TableInfo:
     """
@@ -131,28 +128,33 @@ async def get_table_info(
     """
     try:
         # Get table information from database manager
-        table_info = await database_manager.get_table_info(
-            table_name=table_name,
-            database_name=database_name
-        )
+        schema_info = await database_manager.get_schema_info()
+        
+        if table_name not in schema_info:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Table '{table_name}' not found"
+            )
+        
+        table_info = schema_info[table_name]
         
         # Convert to API model
         columns = []
-        for col_name, col_info in table_info.get("columns", {}).items():
+        for col_info in table_info.get("columns", []):
             column = ColumnInfo(
-                name=col_name,
-                type=col_info.get("type", "unknown"),
-                nullable=col_info.get("nullable", True),
-                primary_key=col_info.get("primary_key", False),
-                foreign_key=col_info.get("foreign_key")
+                name=col_info.get("column_name", "unknown"),
+                type=col_info.get("data_type", "unknown"),
+                nullable=col_info.get("is_nullable", "YES") == "YES",
+                primary_key=False,
+                foreign_key=None
             )
             columns.append(column)
         
         return TableInfo(
             name=table_name,
             columns=columns,
-            row_count=table_info.get("row_count"),
-            description=table_info.get("description")
+            row_count=None,
+            description=None
         )
         
     except Exception as e:
@@ -166,7 +168,6 @@ async def get_table_info(
 async def search_schema(
     query: str,
     database_name: Optional[str] = None,
-    req: Optional[Request] = None,
     database_manager = Depends(get_database)
 ) -> Dict[str, Any]:
     """
@@ -177,16 +178,36 @@ async def search_schema(
     """
     try:
         # Search schema using database manager
-        search_results = await database_manager.search_schema(
-            query=query,
-            database_name=database_name
-        )
+        schema_info = await database_manager.get_schema_info()
+        
+        results = []
+        query_lower = query.lower()
+        
+        for table_name, table_info in schema_info.items():
+            # Search in table names
+            if query_lower in table_name.lower():
+                results.append({
+                    "type": "table",
+                    "name": table_name,
+                    "match": "table_name"
+                })
+            
+            # Search in column names
+            for col_info in table_info.get("columns", []):
+                col_name = col_info.get("column_name", "")
+                if query_lower in col_name.lower():
+                    results.append({
+                        "type": "column",
+                        "table": table_name,
+                        "name": col_name,
+                        "match": "column_name"
+                    })
         
         return {
             "query": query,
             "database_name": database_name or "default",
-            "results": search_results,
-            "total_matches": len(search_results)
+            "results": results,
+            "total_matches": len(results)
         }
         
     except Exception as e:
@@ -199,7 +220,6 @@ async def search_schema(
 @router.get("/relationships", response_model=Dict[str, Any])
 async def get_relationships(
     database_name: Optional[str] = None,
-    req: Optional[Request] = None,
     database_manager = Depends(get_database)
 ) -> Dict[str, Any]:
     """
@@ -209,8 +229,9 @@ async def get_relationships(
     between tables.
     """
     try:
-        # Get relationships from database manager
-        relationships = await database_manager.get_relationships(database_name=database_name)
+        # For now, return empty relationships
+        # Would need additional queries to detect foreign keys
+        relationships = []
         
         return {
             "database_name": database_name or "default",
@@ -230,30 +251,24 @@ async def get_sample_data(
     table_name: str,
     limit: int = 10,
     database_name: Optional[str] = None,
-    req: Optional[Request] = None,
     database_manager = Depends(get_database)
 ) -> Dict[str, Any]:
     """
     Get sample data from a table.
     
     This endpoint returns sample data from the specified table
-    to help understand the data structure.
+    with the specified limit.
     """
     try:
         # Get sample data from database manager
-        sample_data = await database_manager.get_sample_data(
-            table_name=table_name,
-            limit=limit,
-            database_name=database_name
-        )
+        sample_data = await database_manager.get_sample_data(table_name, limit)
         
         return {
             "table_name": table_name,
             "database_name": database_name or "default",
-            "sample_data": sample_data.get("data", []),
-            "columns": sample_data.get("columns", []),
-            "row_count": len(sample_data.get("data", [])),
-            "total_rows": sample_data.get("total_rows", 0)
+            "data": sample_data,
+            "limit": limit,
+            "total_returned": len(sample_data)
         }
         
     except Exception as e:

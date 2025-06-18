@@ -179,6 +179,17 @@ class DatabaseManager:
         """Check if database is connected."""
         return self._async_engine is not None
 
+    async def test_connection(self) -> bool:
+        """Test database connection."""
+        try:
+            if not self._async_engine:
+                return False
+            async with self._async_engine.begin() as conn:
+                await conn.execute(text("SELECT 1"))
+            return True
+        except Exception:
+            return False
+
 
 # Global database manager instance
 db_manager = DatabaseManager()

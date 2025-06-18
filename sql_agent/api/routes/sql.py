@@ -15,7 +15,7 @@ from sql_agent.api.models import (
 )
 from sql_agent.agents.sql import SQLAgent
 from sql_agent.core.llm import LLMFactory
-from sql_agent.core.database import get_database_manager
+from sql_agent.core.database import db_manager
 
 router = APIRouter()
 
