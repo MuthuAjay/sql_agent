@@ -97,19 +97,17 @@ async def execute_sql(
     try:
         # Execute SQL query
         result = await database_manager.execute_query(
-            sql=request.sql,
-            database_name=request.database_name,
-            max_results=request.max_results
+            sql=request.sql
         )
         
         execution_time = time.time() - start_time
         
         return SQLResult(
             sql=request.sql,
-            data=result.get("data", []),
-            row_count=result.get("row_count", 0),
+            data=result.data,
+            row_count=result.row_count,
             execution_time=execution_time,
-            columns=result.get("columns", []),
+            columns=result.columns,
             explanation=None
         )
         
@@ -137,17 +135,14 @@ async def validate_sql(
     
     try:
         # Validate SQL syntax
-        validation_result = await database_manager.validate_sql(
-            sql=request.sql,
-            database_name=request.database_name
-        )
+        is_valid, error = await database_manager.validate_query(sql=request.sql)
         
         return {
             "sql": request.sql,
-            "is_valid": validation_result.get("is_valid", False),
-            "errors": validation_result.get("errors", []),
-            "warnings": validation_result.get("warnings", []),
-            "suggestions": validation_result.get("suggestions", [])
+            "is_valid": is_valid,
+            "errors": [error] if error else [],
+            "warnings": [],
+            "suggestions": []
         }
         
     except Exception as e:
