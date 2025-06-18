@@ -58,6 +58,8 @@ class DatabaseManager:
         start_time = time.time()
         
         try:
+            if not self._session_factory:
+                raise RuntimeError("Session factory is not initialized.")
             async with self._session_factory() as session:
                 # Set timeout if specified
                 if timeout:
@@ -67,29 +69,17 @@ class DatabaseManager:
                 result = await session.execute(text(sql), parameters or {})
                 
                 # Fetch results
-                if result.returns_rows:
-                    rows = result.fetchall()
-                    columns = list(result.keys()) if result.keys() else []
-                    
-                    # Convert to list of dicts
-                    data = [dict(zip(columns, row)) for row in rows]
-                    
-                    return QueryResult(
-                        data=data,
-                        columns=columns,
-                        row_count=len(data),
-                        execution_time=time.time() - start_time,
-                        sql_query=sql,
-                    )
-                else:
-                    return QueryResult(
-                        data=[],
-                        columns=[],
-                        row_count=0,
-                        execution_time=time.time() - start_time,
-                        sql_query=sql,
-                    )
-                    
+                rows = result.mappings().all()
+                columns = list(result.keys()) if result.keys() else []
+                data = [dict(row) for row in rows]
+                return QueryResult(
+                    data=data,
+                    columns=columns,
+                    row_count=len(data),
+                    execution_time=time.time() - start_time,
+                    sql_query=sql,
+                )
+        
         except SQLAlchemyError as e:
             return QueryResult(
                 data=[],
@@ -103,6 +93,8 @@ class DatabaseManager:
     async def get_schema_info(self) -> Dict[str, Any]:
         """Get database schema information."""
         try:
+            if not self._async_engine:
+                raise RuntimeError("Async engine is not initialized.")
             async with self._async_engine.begin() as conn:
                 # Get table information
                 tables_query = """
@@ -115,7 +107,7 @@ class DatabaseManager:
                 """
                 
                 result = await conn.execute(text(tables_query))
-                tables = [dict(row) for row in result.fetchall()]
+                tables = result.mappings().all()
                 
                 # Get column information for each table
                 schema_info = {}
@@ -133,7 +125,7 @@ class DatabaseManager:
                     """
                     
                     result = await conn.execute(text(columns_query), {"table_name": table_name})
-                    columns = [dict(row) for row in result.fetchall()]
+                    columns = result.mappings().all()
                     
                     schema_info[table_name] = {
                         "table_type": table['table_type'],
