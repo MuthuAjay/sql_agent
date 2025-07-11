@@ -1,7 +1,7 @@
 """MCP (Model Context Protocol) integration for SQL Agent."""
 
-from .server import MCPServer
-from .tools import DatabaseTools, SchemaTools, VisualizationTools
+from .server import mcp_server
+
 
 __all__ = [
     "MCPServer",

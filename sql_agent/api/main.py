@@ -10,15 +10,13 @@ from contextlib import asynccontextmanager
 from typing import Dict, Any
 
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 import structlog
 
 from sql_agent.core.config import settings
 from sql_agent.core.database import db_manager
 from sql_agent.agents.orchestrator import AgentOrchestrator
-from sql_agent.mcp.server import MCPServer
+from sql_agent.mcp.server import mcp_server as mcp_fastapi_app
 
 # Configure structured logging
 logger = structlog.get_logger(__name__)
@@ -26,38 +24,25 @@ logger = structlog.get_logger(__name__)
 # Global instances
 database_manager = None
 orchestrator = None
-mcp_server = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown."""
-    global database_manager, orchestrator, mcp_server
+    global database_manager, orchestrator
     
     # Startup
     logger.info("Starting SQL Agent API")
     
     try:
-        # Initialize database manager
+        # Initialize database manager (handled by MCP lifespan now)
         database_manager = db_manager
-        await database_manager.initialize()
-        logger.info("Database manager initialized")
         
-        # Initialize MCP server (simplified for now)
+        # Initialize agent orchestrator
         try:
-            mcp_server = MCPServer()
-            # Note: MCP server start is commented out due to compatibility issues
-            # await mcp_server.start()
-            logger.info("MCP server initialized (not started)")
-        except Exception as e:
-            logger.warning(f"MCP server initialization failed: {e}")
-            mcp_server = None
-        
-        # Initialize agent orchestrator (simplified for now)
-        try:
-            orchestrator = AgentOrchestrator()  # Remove database_manager parameter
-            # await orchestrator.initialize()
-            logger.info("Agent orchestrator initialized (not started)")
+            orchestrator = AgentOrchestrator()
+            await orchestrator.initialize()
+            logger.info("Agent orchestrator initialized")
         except Exception as e:
             logger.warning(f"Agent orchestrator initialization failed: {e}")
             orchestrator = None
@@ -72,16 +57,7 @@ async def lifespan(app: FastAPI):
         # Shutdown
         logger.info("Shutting down SQL Agent API")
         
-        if mcp_server:
-            try:
-                await mcp_server.stop()
-                logger.info("MCP server stopped")
-            except Exception as e:
-                logger.warning(f"MCP server stop failed: {e}")
-        
-        if database_manager:
-            await database_manager.close()
-            logger.info("Database manager closed")
+        # MCP server's lifespan context handles db_manager close
         
         logger.info("SQL Agent API shutdown complete")
 
@@ -96,20 +72,25 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # TODO: Configure from settings
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Mount the FastMCP application
+app.mount("/mcp", mcp_fastapi_app)
 
-# Add trusted host middleware
-app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=["*"]  # TODO: Configure from settings
-)
+# Temporarily disable CORS and TrustedHost middleware for debugging
+# from fastapi.middleware.cors import CORSMiddleware
+# from fastapi.middleware.trustedhost import TrustedHostMiddleware
+
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],  # TODO: Configure from settings
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# app.add_middleware(
+#     TrustedHostMiddleware,
+#     allowed_hosts=["*"]  # TODO: Configure from settings
+# )
 
 
 @app.middleware("http")
@@ -207,7 +188,9 @@ async def health_check() -> Dict[str, Any]:
     
     # Check MCP server
     try:
-        if mcp_server:
+        # FastMCP doesn't have a direct health check method like the old MCPServer
+        # We can check if it's initialized by checking if mcp_fastapi_app is not None
+        if mcp_fastapi_app:
             health_status["services"]["mcp_server"] = "initialized"
         else:
             health_status["services"]["mcp_server"] = "not_initialized"
@@ -246,4 +229,4 @@ app.include_router(query.router, prefix="/api/v1", tags=["query"])
 app.include_router(sql.router, prefix="/api/v1/sql", tags=["sql"])
 app.include_router(analysis.router, prefix="/api/v1/analysis", tags=["analysis"])
 app.include_router(viz.router, prefix="/api/v1/visualization", tags=["visualization"])
-app.include_router(schema.router, prefix="/api/v1/schema", tags=["schema"]) 
+app.include_router(schema.router, prefix="/api/v1/schema", tags=["schema"])

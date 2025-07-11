@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     
     # MCP Configuration
     mcp_server_host: str = Field(default="localhost", alias="MCP_SERVER_HOST")
-    mcp_server_port: int = Field(default=3000, alias="MCP_SERVER_PORT")
+    mcp_server_port: int = Field(default=8000, alias="MCP_SERVER_PORT")
     
     # Security Configuration
     rate_limit_per_minute: int = Field(default=100, alias="RATE_LIMIT_PER_MINUTE")
