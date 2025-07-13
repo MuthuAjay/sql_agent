@@ -78,16 +78,16 @@ app = FastAPI(
 app.mount("/mcp", mcp_fastapi_app)
 
 # Temporarily disable CORS and TrustedHost middleware for debugging
-# from fastapi.middleware.cors import CORSMiddleware
-# from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],  # TODO: Configure from settings
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Or ["http://localhost:5173"] for more security
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # app.add_middleware(
 #     TrustedHostMiddleware,

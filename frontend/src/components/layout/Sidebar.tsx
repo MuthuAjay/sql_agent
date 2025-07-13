@@ -74,15 +74,21 @@ export const Sidebar: React.FC = () => {
               Databases
             </h3>
             <div className="space-y-2">
-              {databases.slice(0, 3).map((db) => (
-                <div key={db.id} className="flex items-center justify-between text-sm">
-                  <span className="text-gray-700 truncate">{db.name}</span>
-                  <div className={cn(
-                    'w-2 h-2 rounded-full',
-                    db.status === 'connected' ? 'bg-green-500' : 'bg-red-500'
-                  )} />
+              {databases.length === 0 ? (
+                <div className="text-sm text-red-500 text-center">
+                  No databases available. Please check your backend connection.
                 </div>
-              ))}
+              ) : (
+                databases.slice(0, 3).map((db) => (
+                  <div key={db.id} className="flex items-center justify-between text-sm">
+                    <span className="text-gray-700 truncate">{db.name}</span>
+                    <div className={cn(
+                      'w-2 h-2 rounded-full',
+                      db.status === 'connected' ? 'bg-green-500' : 'bg-red-500'
+                    )} />
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}

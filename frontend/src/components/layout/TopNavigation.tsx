@@ -30,6 +30,11 @@ export const TopNavigation: React.FC = () => {
               </option>
             ))}
           </select>
+          {databases.length === 0 && (
+            <div className="mt-2 text-sm text-red-500 text-center">
+              No databases available. Please check your backend database connection.
+            </div>
+          )}
         </div>
 
         {/* Actions */}
