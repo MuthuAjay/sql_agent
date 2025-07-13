@@ -1,100 +1,226 @@
 // frontend/src/types/index.ts
 
-// Core Database Types
-export interface Database {
+// Base types
+export interface BaseResponse {
+  request_id: string;
+  timestamp: string;
+  processing_time: number;
+}
+
+// Query Types
+export interface QueryRequest {
+  query: string;
+  database_name?: string;
+  max_results?: number;
+  include_analysis?: boolean;
+  include_visualization?: boolean;
+  chart_type?: string;
+  analysis_type?: string;
+  context?: Record<string, any>;
+  session_id?: string;
+}
+
+export interface QueryResponse extends BaseResponse {
+  query: string;
+  intent: 'sql_generation' | 'analysis' | 'visualization' | 'schema_info' | 'unknown';
+  confidence: number;
+  sql_result?: SQLResult;
+  analysis_result?: AnalysisResult;
+  visualization_result?: VisualizationResult;
+  suggestions: string[];
+  cached: boolean;
+}
+
+// SQL Types
+export interface SQLResult {
+  sql: string;
+  data: any[][];
+  row_count: number;
+  total_rows?: number;
+  execution_time: number;
+  columns: string[];
+  column_types?: Record<string, string>;
+  explanation?: string;
+  query_plan?: Record<string, any>;
+  cache_hit: boolean;
+  warnings: string[];
+  error?: string;
+}
+
+export interface ValidationResult {
+  is_valid: boolean;
+  errors: string[];
+  warnings: string[];
+  suggestions: string[];
+  estimated_cost?: number;
+  estimated_rows?: number;
+}
+
+// Analysis Types
+export interface StatisticalSummary {
+  count: number;
+  numeric_columns: Record<string, Record<string, number>>;
+  categorical_columns: Record<string, Record<string, any>>;
+  missing_values: Record<string, number>;
+  data_types: Record<string, string>;
+  correlations?: Record<string, Record<string, number>>;
+}
+
+export interface Insight {
+  type: string;
+  title: string;
+  description: string;
+  confidence: number;
+  impact: string;
+  supporting_data?: Record<string, any>;
+}
+
+export interface Anomaly {
+  type: string;
+  column?: string;
+  description: string;
+  severity: string;
+  affected_rows?: number;
+  threshold?: number;
+}
+
+export interface Trend {
+  type: string;
+  column: string;
+  direction: string;
+  strength: number;
+  period?: string;
+  description: string;
+}
+
+export interface Recommendation {
+  type: string;
+  title: string;
+  description: string;
+  priority: string;
+  effort: string;
+  expected_impact: string;
+  action_items: string[];
+}
+
+export interface AnalysisResult {
+  summary: StatisticalSummary;
+  insights: Insight[];
+  anomalies: Anomaly[];
+  trends: Trend[];
+  recommendations: Recommendation[];
+  data_quality_score: number;
+  confidence_score: number;
+  processing_metadata?: Record<string, any>;
+}
+
+// Visualization Types
+export interface ChartConfig {
+  type: string;
+  title: string;
+  x_axis?: string;
+  y_axis?: string;
+  color_by?: string;
+  size_by?: string;
+  aggregation?: string;
+  theme: string;
+  interactive: boolean;
+  responsive: boolean;
+  animations: boolean;
+  legend: boolean;
+  grid: boolean;
+}
+
+export interface VisualizationResult {
+  chart_type: string;
+  chart_config: ChartConfig;
+  chart_data: Record<string, any>;
+  title: string;
+  description?: string;
+  export_formats: string[];
+  alternative_charts: string[];
+  data_insights: string[];
+}
+
+export interface VisualizationSuggestion {
+  type: string;
+  title: string;
+  description: string;
+  confidence: number;
+  columns: string[];
+  config: Record<string, any>;
+}
+
+// Database and Schema Types
+export interface DatabaseInfo {
   id: string;
   name: string;
-  type: 'postgres' | 'mysql' | 'sqlite' | 'mssql' | 'oracle';
+  type: 'postgresql' | 'mysql' | 'sqlite' | 'mongodb' | 'mssql' | 'oracle' | 'bigquery' | 'snowflake';
+  status: 'connected' | 'disconnected' | 'connecting' | 'error';
   host?: string;
   port?: number;
-  status: 'connected' | 'disconnected' | 'error';
-  description?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Table {
-  id: string;
-  name: string;
-  database_id: string;
-  schema?: string;
-  type: 'table' | 'view' | 'materialized_view';
-  row_count?: number;
+  version?: string;
   size?: string;
-  description?: string;
-  created_at?: string;
-  updated_at?: string;
+  table_count?: number;
+  last_sync: string;
+  capabilities: string[];
+  connection_pool_size?: number;
 }
 
-export interface Column {
+export interface ColumnInfo {
   name: string;
   type: string;
   nullable: boolean;
+  primary_key: boolean;
+  foreign_key?: string;
+  unique: boolean;
+  indexed: boolean;
   default_value?: any;
-  is_primary_key: boolean;
-  is_foreign_key: boolean;
-  foreign_key_table?: string;
-  foreign_key_column?: string;
   max_length?: number;
   precision?: number;
   scale?: number;
   description?: string;
+  sample_values?: any[];
 }
 
-export interface Index {
+export interface IndexInfo {
   name: string;
   columns: string[];
-  is_unique: boolean;
-  is_primary: boolean;
+  unique: boolean;
+  primary: boolean;
   type: string;
+  size?: string;
 }
 
-export interface Relationship {
-  type: 'one_to_one' | 'one_to_many' | 'many_to_many';
+export interface RelationshipInfo {
+  type: string;
   source_table: string;
   source_column: string;
   target_table: string;
   target_column: string;
   constraint_name?: string;
+  on_delete?: string;
+  on_update?: string;
 }
 
-export interface TableSchema {
-  table: Table;
-  columns: Column[];
-  indexes: Index[];
-  relationships: Relationship[];
-  constraints: any[];
-  triggers: any[];
-  row_count: number;
-  size_bytes: number;
-}
-
-export interface SampleData {
-  columns: string[];
-  data: any[][];
-  total_rows: number;
-  sample_size: number;
-}
-
-// Query Types
-export interface QueryResult {
+export interface TableInfo {
   id: string;
-  sql: string;
-  status: 'success' | 'error' | 'running' | 'cancelled';
-  columns?: string[];
-  data?: any[][];
-  row_count?: number;
-  execution_time?: number;
-  error_message?: string;
+  name: string;
   database_id: string;
-  created_at: string;
-  metadata?: {
-    affected_rows?: number;
-    execution_plan?: any;
-    warnings?: string[];
-  };
+  schema?: string;
+  columns: ColumnInfo[];
+  indexes: IndexInfo[];
+  relationships: RelationshipInfo[];
+  row_count?: number;
+  size?: string;
+  description?: string;
+  created_at?: string;
+  updated_at?: string;
+  primary_keys: string[];
+  foreign_keys: string[];
 }
 
+// Query History Types
 export interface QueryHistory {
   id: string;
   query: string;
@@ -110,86 +236,11 @@ export interface QueryHistory {
   is_favorite: boolean;
 }
 
-export interface ValidationResult {
-  valid: boolean;
-  suggestions?: string[];
-  errors?: string[];
-  warnings?: string[];
-}
-
-export interface NaturalLanguageQuery {
-  id: string;
-  original_query: string;
-  generated_sql: string;
-  confidence: number;
-  explanation?: string;
-  suggestions?: string[];
-}
-
-// Analysis Types
-export interface DataProfile {
-  column: string;
-  type: string;
-  count: number;
-  null_count: number;
-  unique_count: number;
-  min_value?: any;
-  max_value?: any;
-  mean?: number;
-  median?: number;
-  std_dev?: number;
-  percentiles?: { [key: string]: number };
-  most_frequent?: any[];
-  data_quality_score: number;
-}
-
-export interface DataSummary {
-  total_rows: number;
-  total_columns: number;
-  data_types: { [key: string]: number };
-  null_percentage: number;
-  duplicate_rows: number;
-  data_quality_score: number;
-  insights: string[];
-  recommendations: string[];
-}
-
-// Visualization Types
-export interface VisualizationSuggestion {
-  type: 'bar' | 'line' | 'pie' | 'scatter' | 'histogram' | 'heatmap' | 'table';
-  title: string;
-  description: string;
-  confidence: number;
-  columns: string[];
-  config: {
-    x_axis?: string;
-    y_axis?: string | string[];
-    color?: string;
-    size?: string;
-    aggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
-  };
-}
-
-export interface ChartConfig {
-  type: string;
-  title: string;
-  x_axis: string;
-  y_axis: string | string[];
-  color?: string;
-  size?: string;
-  aggregation?: string;
-  theme?: 'light' | 'dark';
-  responsive?: boolean;
-  animation?: boolean;
-  legend?: boolean;
-  grid?: boolean;
-}
-
 // Connection Types
 export interface Connection {
   id: string;
   name: string;
-  type: 'postgres' | 'mysql' | 'sqlite' | 'mssql' | 'oracle' | 'bigquery' | 'snowflake';
+  type: 'postgresql' | 'mysql' | 'sqlite' | 'mssql' | 'oracle' | 'mongodb';
   host: string;
   port: number;
   database: string;
@@ -204,39 +255,7 @@ export interface Connection {
   tags?: string[];
 }
 
-// Chat Types
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: string;
-  sql?: string;
-  query_result?: QueryResult;
-  suggestions?: string[];
-  context?: any;
-}
-
-export interface ChatSession {
-  id: string;
-  title: string;
-  messages: ChatMessage[];
-  database_id?: string;
-  created_at: string;
-  updated_at: string;
-}
-
 // User Types
-export interface UserProfile {
-  id: string;
-  email: string;
-  name: string;
-  avatar?: string;
-  role: 'admin' | 'analyst' | 'viewer';
-  created_at: string;
-  last_login?: string;
-  preferences: UserPreferences;
-}
-
 export interface UserPreferences {
   theme: 'light' | 'dark' | 'auto';
   language: string;
@@ -262,6 +281,38 @@ export interface UserPreferences {
   };
 }
 
+export interface UserProfile {
+  id: string;
+  email: string;
+  name: string;
+  avatar?: string;
+  role: 'admin' | 'analyst' | 'viewer';
+  created_at: string;
+  last_login?: string;
+  preferences: UserPreferences;
+}
+
+// Chat Types
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: string;
+  sql?: string;
+  query_result?: SQLResult;
+  suggestions?: string[];
+  context?: any;
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  database_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // API Response Types
 export interface ApiResponse<T = any> {
   data: T;
@@ -277,11 +328,13 @@ export interface ApiResponse<T = any> {
 }
 
 export interface PaginatedResponse<T> {
-  data: T[];
+  items: T[];
   total: number;
   page: number;
   limit: number;
   pages: number;
+  has_next: boolean;
+  has_prev: boolean;
 }
 
 // Error Types
@@ -291,14 +344,45 @@ export interface ApiError {
   detail: string;
   request_id: string;
   timestamp?: string;
+  suggestions?: string[];
 }
 
-// WebSocket Types
-export interface WebSocketMessage {
-  type: 'query_progress' | 'query_complete' | 'query_error' | 'notification';
-  data: any;
-  request_id?: string;
-  timestamp: string;
+// Feature Flag Types
+export interface FeatureFlags {
+  query_optimization: boolean;
+  sql_validation: boolean;
+  visualization: boolean;
+  analysis: boolean;
+  websockets: boolean;
+  query_caching: boolean;
+  metrics: boolean;
+  rag: boolean;
+}
+
+// App Configuration Types
+export interface AppConfig {
+  app_name: string;
+  app_version: string;
+  environment: string;
+  api_prefix: string;
+  features: FeatureFlags;
+  limits: {
+    max_rows_returned: number;
+    query_timeout_seconds: number;
+    max_file_size_mb: number;
+    allowed_file_types: string[];
+  };
+  llm_provider: string;
+}
+
+// Health Check Types
+export interface HealthStatus {
+  status: string;
+  timestamp: number;
+  version: string;
+  services: Record<string, string>;
+  metrics?: Record<string, any>;
+  uptime?: number;
 }
 
 // Export Types
@@ -333,68 +417,6 @@ export interface Notification {
   };
 }
 
-// Dashboard Types
-export interface Widget {
-  id: string;
-  type: 'chart' | 'table' | 'metric' | 'text';
-  title: string;
-  sql: string;
-  database_id: string;
-  config: any;
-  position: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-  refresh_interval?: number;
-  last_updated?: string;
-}
-
-export interface Dashboard {
-  id: string;
-  name: string;
-  description?: string;
-  widgets: Widget[];
-  layout: any;
-  shared: boolean;
-  created_at: string;
-  updated_at: string;
-  created_by: string;
-  tags?: string[];
-}
-
-// Report Types
-export interface Report {
-  id: string;
-  name: string;
-  description?: string;
-  sql: string;
-  database_id: string;
-  parameters?: ReportParameter[];
-  schedule?: ReportSchedule;
-  format: 'pdf' | 'html' | 'csv' | 'xlsx';
-  created_at: string;
-  updated_at: string;
-  created_by: string;
-}
-
-export interface ReportParameter {
-  name: string;
-  type: 'string' | 'number' | 'date' | 'boolean';
-  required: boolean;
-  default_value?: any;
-  description?: string;
-}
-
-export interface ReportSchedule {
-  enabled: boolean;
-  frequency: 'daily' | 'weekly' | 'monthly';
-  time: string;
-  recipients: string[];
-  next_run?: string;
-}
-
 // State Management Types
 export interface AppState {
   user: {
@@ -404,20 +426,20 @@ export interface AppState {
     loading: boolean;
   };
   databases: {
-    list: Database[];
-    current: Database | null;
+    list: DatabaseInfo[];
+    current: DatabaseInfo | null;
     loading: boolean;
     error: string | null;
   };
   queries: {
     history: QueryHistory[];
-    current: QueryResult | null;
+    current: QueryResponse | null;
     loading: boolean;
     error: string | null;
   };
   schema: {
-    tables: Table[];
-    currentTable: TableSchema | null;
+    tables: TableInfo[];
+    currentTable: TableInfo | null;
     loading: boolean;
     error: string | null;
   };
@@ -442,4 +464,10 @@ export interface UseMutationOptions<T = any> {
   onSuccess?: (data: T) => void;
   onError?: (error: Error) => void;
   onSettled?: () => void;
+  onMutate?: (variables: any) => any;
 }
+
+// Backward compatibility - Legacy types
+export interface Database extends DatabaseInfo {}
+export interface Table extends TableInfo {}
+export interface QueryResult extends SQLResult {}
