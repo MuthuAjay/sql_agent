@@ -27,24 +27,33 @@ class SchemaProcessor:
             schema_info = await db_manager.get_schema_info()
             
             if not schema_info:
-                self.logger.warning("no_schema_info_available")
-                return []
+                error_msg = "No schema information available: database may be empty, inaccessible, or misconfigured."
+                self.logger.error("no_schema_info_available", error=error_msg)
+                raise RuntimeError(error_msg)
             
             contexts = []
             
             # Process each table
             for table_name, table_info in schema_info.items():
-                # Create table-level context
-                table_context = await self._create_table_context(table_name, table_info)
-                contexts.append(table_context)
+                try:
+                    # Create table-level context
+                    table_context = await self._create_table_context(table_name, table_info)
+                    contexts.append(table_context)
+                except Exception as e:
+                    self.logger.error("create_table_context_failed", table_name=table_name, error=repr(e), exc_info=True)
+                    raise
                 
                 # Create column-level contexts
                 columns = table_info.get("columns", [])
                 for column_info in columns:
-                    column_context = await self._create_column_context(
-                        table_name, column_info, table_info
-                    )
-                    contexts.append(column_context)
+                    try:
+                        column_context = await self._create_column_context(
+                            table_name, column_info, table_info
+                        )
+                        contexts.append(column_context)
+                    except Exception as e:
+                        self.logger.error("create_column_context_failed", table_name=table_name, column_name=column_info.get("column_name", ""), error=repr(e), exc_info=True)
+                        raise
             
             self.logger.info("schema_contexts_extracted", 
                            table_count=len(schema_info),
@@ -53,7 +62,7 @@ class SchemaProcessor:
             return contexts
             
         except Exception as e:
-            self.logger.error("extract_schema_contexts_failed", error=str(e))
+            self.logger.error("extract_schema_contexts_failed", error=repr(e), exc_info=True)
             raise
     
     async def _create_table_context(self, table_name: str, table_info: Dict[str, Any]) -> SchemaContext:
@@ -64,7 +73,12 @@ class SchemaProcessor:
             column_count = len(columns)
             
             # Get sample data for table description
-            sample_data = await db_manager.get_sample_data(table_name, limit=3)
+            sample_data_result = await db_manager.get_sample_data(table_name, limit=3)
+            sample_data = []
+            if sample_data_result and sample_data_result.get("columns") and sample_data_result.get("rows"):
+                columns = sample_data_result["columns"]
+                for row in sample_data_result["rows"]:
+                    sample_data.append(dict(zip(columns, row)))
             
             # Create description
             description = f"Table {table_name} with {column_count} columns"
@@ -91,7 +105,7 @@ class SchemaProcessor:
             
         except Exception as e:
             self.logger.error("create_table_context_failed", 
-                            table_name=table_name, error=str(e))
+                            table_name=table_name, error=repr(e), exc_info=True)
             raise
     
     async def _create_column_context(
@@ -151,7 +165,7 @@ class SchemaProcessor:
             self.logger.error("create_column_context_failed", 
                             table_name=table_name, 
                             column_name=column_info.get("column_name", ""),
-                            error=str(e))
+                            error=repr(e), exc_info=True)
             raise
     
     async def _get_column_sample_values(self, table_name: str, column_name: str) -> List[str]:
@@ -178,25 +192,27 @@ class SchemaProcessor:
             self.logger.warning("get_column_sample_values_failed", 
                               table_name=table_name, 
                               column_name=column_name,
-                              error=str(e))
+                              error=repr(e), exc_info=True)
             return []
     
-    def _identify_table_relationships(self, table_name: str, columns: List[Dict[str, Any]]) -> List[str]:
+    def _identify_table_relationships(self, table_name: str, columns: List[Any]) -> List[str]:
         """Identify relationships for a table."""
         relationships = []
         
         # Look for foreign key patterns
         for column in columns:
-            column_name = column.get("column_name", "")
-            
+            if isinstance(column, dict):
+                column_name = column.get("column_name", "")
+            elif isinstance(column, str):
+                column_name = column
+            else:
+                continue
             # Common foreign key patterns
             if column_name.endswith("_id"):
                 referenced_table = column_name[:-3]  # Remove "_id" suffix
                 relationships.append(f"References {referenced_table} table via {column_name}")
-            
             elif "foreign" in column_name.lower():
                 relationships.append(f"Foreign key column: {column_name}")
-        
         return relationships
     
     def _identify_column_relationships(
@@ -299,7 +315,7 @@ class SchemaProcessor:
             return summary
             
         except Exception as e:
-            self.logger.error("get_schema_summary_failed", error=str(e))
+            self.logger.error("get_schema_summary_failed", error=repr(e), exc_info=True)
             raise
     
     async def refresh_schema_cache(self) -> None:
@@ -330,7 +346,7 @@ class SchemaProcessor:
                            total_contexts=len(contexts))
             
         except Exception as e:
-            self.logger.error("refresh_schema_cache_failed", error=str(e))
+            self.logger.error("refresh_schema_cache_failed", error=repr(e), exc_info=True)
             raise
     
     def get_cached_schema(self, table_name: Optional[str] = None) -> Dict[str, Any]:

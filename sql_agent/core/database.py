@@ -7,6 +7,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .state import QueryResult
+from sql_agent.core.models import Table
 
 
 class DatabaseManager:
@@ -161,19 +162,155 @@ class DatabaseManager:
         except Exception as e:
             return False, f"Query validation failed: {e}"
     
-    async def get_sample_data(self, table_name: str, limit: int = 5) -> List[Dict[str, Any]]:
+    async def get_tables(self) -> List[dict]:
+        """Get all tables and views in the database."""
+        if not self._async_engine:
+            raise RuntimeError("Async engine is not initialized.")
+        async with self._async_engine.begin() as conn:
+            query = """
+            SELECT 
+                table_name, 
+                table_type, 
+                table_schema
+            FROM information_schema.tables 
+            WHERE table_schema = 'public'
+            ORDER BY table_name
+            """
+            result = await conn.execute(text(query))
+            tables = []
+            for row in result:
+                tables.append({
+                    "name": row.table_name,
+                    "type": row.table_type.lower() if row.table_type else 'table',
+                    "schema": row.table_schema,
+                    "rowCount": None,
+                    "size": None,
+                    "description": None,
+                    "lastDescriptionUpdate": None
+                })
+            return tables
+
+    async def get_table_schema(self, table_name: str) -> dict:
+        """Get detailed schema for a specific table."""
+        if not self._async_engine:
+            raise RuntimeError("Async engine is not initialized.")
+        async with self._async_engine.begin() as conn:
+            columns_query = """
+            SELECT 
+                column_name, 
+                data_type, 
+                is_nullable, 
+                column_default
+            FROM information_schema.columns 
+            WHERE table_name = :table_name
+            ORDER BY ordinal_position
+            """
+            result = await conn.execute(text(columns_query), {"table_name": table_name})
+            columns = []
+            for row in result:
+                columns.append({
+                    "name": row.column_name,
+                    "type": row.data_type,
+                    "nullable": row.is_nullable == "YES",
+                    "primaryKey": False,  # To be filled below
+                    "foreignKey": None,
+                    "defaultValue": row.column_default,
+                    "constraints": []
+                })
+            # Mark primary keys
+            pk_query = """
+            SELECT a.attname
+            FROM pg_index i
+            JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+            WHERE i.indrelid = :table_name::regclass AND i.indisprimary;
+            """
+            pk_result = await conn.execute(text(pk_query), {"table_name": table_name})
+            pk_columns = {row.attname for row in pk_result}
+            for col in columns:
+                if col["name"] in pk_columns:
+                    col["primaryKey"] = True
+            # Foreign keys
+            fk_query = """
+            SELECT
+                kcu.column_name,
+                ccu.table_name AS referenced_table,
+                ccu.column_name AS referenced_column
+            FROM 
+                information_schema.table_constraints AS tc 
+                JOIN information_schema.key_column_usage AS kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                  AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage AS ccu
+                  ON ccu.constraint_name = tc.constraint_name
+                  AND ccu.table_schema = tc.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = :table_name;
+            """
+            fk_result = await conn.execute(text(fk_query), {"table_name": table_name})
+            foreign_keys = []
+            for row in fk_result:
+                for col in columns:
+                    if col["name"] == row.column_name:
+                        col["foreignKey"] = {
+                            "referencedTable": row.referenced_table,
+                            "referencedColumn": row.referenced_column
+                        }
+                foreign_keys.append({
+                    "columnName": row.column_name,
+                    "referencedTable": row.referenced_table,
+                    "referencedColumn": row.referenced_column
+                })
+            # Indexes (simplified)
+            indexes = []
+            index_query = """
+            SELECT
+                indexname,
+                indexdef
+            FROM pg_indexes
+            WHERE tablename = :table_name;
+            """
+            idx_result = await conn.execute(text(index_query), {"table_name": table_name})
+            for row in idx_result:
+                # Parse indexdef for columns and uniqueness
+                idx_cols = []
+                unique = "UNIQUE" in row.indexdef
+                if "(" in row.indexdef and ")" in row.indexdef:
+                    idx_cols = row.indexdef.split("(")[1].split(")")[0].replace('"', '').split(', ')
+                indexes.append({
+                    "name": row.indexname,
+                    "columns": idx_cols,
+                    "unique": unique
+                })
+            return {
+                "tableName": table_name,
+                "columns": columns,
+                "indexes": indexes,
+                "foreignKeys": foreign_keys
+            }
+
+    async def get_sample_data(self, table_name: str, limit: int = 5) -> dict:
         """Get sample data from a table."""
-        try:
+        if not self._async_engine:
+            raise RuntimeError("Async engine is not initialized.")
+        async with self._async_engine.begin() as conn:
             sql = f"SELECT * FROM {table_name} LIMIT {limit}"
-            result = await self.execute_query(sql)
-            
-            if result.error:
-                raise RuntimeError(result.error)
-            
-            return result.data
-            
-        except Exception as e:
-            raise RuntimeError(f"Failed to get sample data: {e}")
+            result = await conn.execute(text(sql))
+            rows = result.fetchall()
+            columns = result.keys()
+            return {
+                "columns": list(columns),
+                "rows": [list(row) for row in rows]
+            }
+    
+    async def list_tables(self, database_id: str) -> List[Table]:
+        # For now, ignore database_id if only one DB is used
+        if not self._async_engine:
+            raise RuntimeError("Async engine is not initialized.")
+        async with self._async_engine.begin() as conn:
+            result = await conn.execute(
+                text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
+            )
+            tables = [Table(name=row[0], type='table') for row in result]
+            return tables
     
     def is_connected(self) -> bool:
         """Check if database is connected."""

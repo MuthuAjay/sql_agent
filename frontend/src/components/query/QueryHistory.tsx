@@ -9,20 +9,25 @@ import toast from 'react-hot-toast';
 export const QueryHistory: React.FC = () => {
   const { queryHistory, setQueryHistory, setCurrentQuery, setCurrentSql } = useQueryStore();
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
-  useEffect(() => {
-    const loadHistory = async () => {
-      try {
-        const result = await queryAPI.getHistory();
-        setQueryHistory(result.queries);
-      } catch (error) {
-        console.error('Failed to load query history:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const loadHistory = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await queryAPI.getHistory();
+      setQueryHistory(result.queries);
+    } catch (error: any) {
+      setError(error?.message || 'Failed to load query history');
+      console.error('Failed to load query history:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  React.useEffect(() => {
     loadHistory();
+    // eslint-disable-next-line
   }, [setQueryHistory]);
 
   const handleCopyQuery = (query: string) => {
@@ -40,6 +45,22 @@ export const QueryHistory: React.FC = () => {
     return (
       <div className="flex items-center justify-center p-8">
         <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-8">
+        <Clock className="w-12 h-12 text-red-400 mx-auto mb-4" />
+        <p className="text-red-500 font-semibold">Failed to load query history</p>
+        <p className="text-sm text-gray-400 mb-4">{error}</p>
+        <button
+          onClick={loadHistory}
+          className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+        >
+          Retry
+        </button>
       </div>
     );
   }

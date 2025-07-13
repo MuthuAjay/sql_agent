@@ -9,18 +9,45 @@ export interface Database {
 
 export interface Table {
   name: string;
-  schema: string;
-  rowCount: number;
-  size: string;
-  columns: Column[];
+  type: 'table' | 'view';
+  schema?: string;
+  rowCount?: number;
+  size?: string;
+  description?: string;
+  lastDescriptionUpdate?: string;
 }
 
 export interface Column {
   name: string;
   type: string;
   nullable: boolean;
-  primaryKey?: boolean;
-  foreignKey?: boolean;
+  primaryKey: boolean;
+  foreignKey?: {
+    referencedTable: string;
+    referencedColumn: string;
+  };
+  defaultValue?: any;
+  constraints?: string[];
+}
+
+export interface TableSchema {
+  tableName: string;
+  columns: Column[];
+  indexes: Array<{
+    name: string;
+    columns: string[];
+    unique: boolean;
+  }>;
+  foreignKeys: Array<{
+    columnName: string;
+    referencedTable: string;
+    referencedColumn: string;
+  }>;
+}
+
+export interface SampleData {
+  columns: string[];
+  rows: any[][];
 }
 
 export interface QueryResult {

@@ -5,15 +5,20 @@ This module contains endpoints for database schema information.
 """
 
 from typing import Dict, Any, List, Optional
+import time
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Body
 
 from sql_agent.api.models import (
     SchemaResponse, TableInfo, ColumnInfo, DatabaseInfo
 )
 from sql_agent.core.database import db_manager
+from sql_agent.core.models import Table
+from sql_agent.services.ai_service import AIDescriptionService
+import structlog
 
 router = APIRouter()
+logger = structlog.get_logger(__name__)
 
 
 def get_database() -> Any:
@@ -299,3 +304,59 @@ async def get_databases(database_manager = Depends(get_database)):
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get databases: {e}") 
+
+
+@router.get("/databases/{database_id}/tables", response_model=List[Table])
+async def list_tables_endpoint(database_id: str, database_manager = Depends(get_database)):
+    """
+    List all tables for a given database.
+    """
+    try:
+        tables = await database_manager.list_tables(database_id)
+        return tables
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list tables: {e}") 
+
+@router.get("/databases/{database_id}/tables")
+async def api_get_tables(database_id: str):
+    try:
+        tables = await db_manager.get_tables()
+        return {"tables": tables}
+    except Exception as e:
+        logger.error("Failed to fetch tables", database_id=database_id, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to fetch tables: {str(e)}")
+
+@router.get("/databases/{database_id}/tables/{table_name}/schema")
+async def api_get_table_schema(database_id: str, table_name: str):
+    try:
+        schema = await db_manager.get_table_schema(table_name)
+        return schema
+    except Exception as e:
+        logger.error("Failed to fetch table schema", database_id=database_id, table_name=table_name, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to fetch table schema: {str(e)}")
+
+@router.get("/databases/{database_id}/tables/{table_name}/sample")
+async def api_get_sample_data(database_id: str, table_name: str, limit: int = 5):
+    try:
+        sample_data = await db_manager.get_sample_data(table_name, limit)
+        return sample_data
+    except Exception as e:
+        logger.error("Failed to fetch sample data", database_id=database_id, table_name=table_name, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to fetch sample data: {str(e)}")
+
+@router.post("/databases/{database_id}/tables/{table_name}/description")
+async def api_generate_table_description(database_id: str, table_name: str, body: dict = Body(None)):
+    try:
+        regenerate = body.get("regenerate", False) if body else False
+        schema = await db_manager.get_table_schema(table_name)
+        sample_data = await db_manager.get_sample_data(table_name, 3)
+        ai_service = AIDescriptionService()
+        description = await ai_service.generate_table_description(table_name, schema, sample_data, regenerate)
+        return {
+            "description": description,
+            "generatedAt": int(time.time()),
+            "cached": not regenerate
+        }
+    except Exception as e:
+        logger.error("Failed to generate table description", database_id=database_id, table_name=table_name, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to generate description: {str(e)}") 

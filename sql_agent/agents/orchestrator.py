@@ -4,6 +4,7 @@ import uuid
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from langgraph.graph import StateGraph, END
+from langgraph.graph.state import CompiledStateGraph
 from .base import BaseAgent
 from .router import RouterAgent
 from .sql import SQLAgent
@@ -31,7 +32,7 @@ class AgentOrchestrator:
         self.visualization_agent = VisualizationAgent(self.llm_provider)
         
         # Create workflow graph
-        self.workflow = self._create_workflow()
+        self.workflow: CompiledStateGraph = self._create_workflow()
         
         # RAG initialization flag
         self._rag_initialized = False
@@ -42,16 +43,20 @@ class AgentOrchestrator:
             self.logger.info("initializing_orchestrator")
             
             # Initialize RAG components
-            await context_manager.initialize()
-            self._rag_initialized = True
+            try:
+                await context_manager.initialize()
+                self._rag_initialized = True
+            except Exception as e:
+                self.logger.error("rag_context_manager_initialization_failed", error=repr(e), exc_info=True)
+                raise RuntimeError(f"Failed to initialize RAG context manager: {e}")
             
             self.logger.info("orchestrator_initialized", rag_initialized=True)
             
         except Exception as e:
-            self.logger.error("orchestrator_initialization_failed", error=str(e))
+            self.logger.error("orchestrator_initialization_failed", error=repr(e), exc_info=True)
             raise
     
-    def _create_workflow(self) -> StateGraph:
+    def _create_workflow(self) -> CompiledStateGraph:
         """Create the LangGraph workflow."""
         workflow = StateGraph(AgentState)
         
@@ -60,6 +65,9 @@ class AgentOrchestrator:
         workflow.add_node("sql", self._run_sql)
         workflow.add_node("analysis", self._run_analysis)
         workflow.add_node("visualization", self._run_visualization)
+        
+        # Set the entry point (replaces direct add_edge("START", ...))
+        workflow.set_entry_point("router")
         
         # Add edges
         workflow.add_edge("router", "sql")
@@ -140,7 +148,9 @@ class AgentOrchestrator:
         try:
             # Run the workflow
             final_state = await self.workflow.ainvoke(state)
-            
+            # If the result is a dict, convert to AgentState
+            if isinstance(final_state, dict):
+                final_state = AgentState(**final_state)
             # Calculate processing time
             final_state.end_time = datetime.utcnow()
             if final_state.start_time:

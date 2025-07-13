@@ -225,3 +225,39 @@ export const userAPI = {
 };
 
 export default api;
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+export const tableApi = {
+  // Get all tables for a database
+  getTables: async (databaseId: string): Promise<{ tables: Table[] }> => {
+    const response = await fetch(`${API_BASE}/api/v1/schema/databases/${databaseId}/tables`);
+    if (!response.ok) throw new Error('Failed to fetch tables');
+    return response.json();
+  },
+
+  // Get detailed schema for a specific table
+  getTableSchema: async (databaseId: string, tableName: string): Promise<TableSchema> => {
+    const response = await fetch(`${API_BASE}/api/v1/schema/databases/${databaseId}/tables/${tableName}/schema`);
+    if (!response.ok) throw new Error('Failed to fetch table schema');
+    return response.json();
+  },
+
+  // Get sample data from table
+  getSampleData: async (databaseId: string, tableName: string, limit = 5): Promise<SampleData> => {
+    const response = await fetch(`${API_BASE}/api/v1/schema/databases/${databaseId}/tables/${tableName}/sample?limit=${limit}`);
+    if (!response.ok) throw new Error('Failed to fetch sample data');
+    return response.json();
+  },
+
+  // Generate AI description for table
+  generateDescription: async (databaseId: string, tableName: string, regenerate = false): Promise<{ description: string; generatedAt: string; cached: boolean }> => {
+    const response = await fetch(`${API_BASE}/api/v1/schema/databases/${databaseId}/tables/${tableName}/description`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ regenerate })
+    });
+    if (!response.ok) throw new Error('Failed to generate description');
+    return response.json();
+  }
+};

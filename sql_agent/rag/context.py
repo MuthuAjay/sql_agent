@@ -31,13 +31,17 @@ class ContextManager:
             await embedding_service.get_embedding_dimension()
             
             # Extract and store initial schema contexts
-            await self._initialize_schema_contexts()
+            try:
+                await self._initialize_schema_contexts()
+            except Exception as e:
+                self.logger.error("schema_context_initialization_failed", error=repr(e), exc_info=True)
+                raise RuntimeError(f"Failed to initialize schema contexts: {e}")
             
             self._initialized = True
             self.logger.info("context_manager_initialized")
             
         except Exception as e:
-            self.logger.error("context_manager_initialization_failed", error=str(e))
+            self.logger.error("context_manager_initialization_failed", error=repr(e), exc_info=True)
             raise
     
     def _ensure_initialized(self) -> None:

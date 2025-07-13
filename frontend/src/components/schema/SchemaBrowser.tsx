@@ -49,7 +49,7 @@ export const SchemaBrowser: React.FC = () => {
       name: table.name,
       type: 'table',
       metadata: table,
-      children: table.columns.map((column: any) => ({
+      children: (table.columns || []).map((column: any) => ({
         id: `column-${table.name}-${column.name}`,
         name: column.name,
         type: 'column',
@@ -234,17 +234,25 @@ export const SchemaBrowser: React.FC = () => {
                     <div className="space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-500">Rows:</span>
-                        <span className="font-medium">{selectedNode.metadata.rowCount}</span>
+                        <span className="font-medium">{selectedNode.metadata.rowCount ?? 'N/A'}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-500">Size:</span>
-                        <span className="font-medium">{selectedNode.metadata.size}</span>
+                        <span className="font-medium">{selectedNode.metadata.size ?? 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Schema:</span>
+                        <span className="font-medium">{selectedNode.metadata.table_schema ?? 'N/A'}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-500">Columns:</span>
-                        <span className="font-medium">{selectedNode.metadata.columns.length}</span>
+                        <span className="font-medium">{selectedNode.metadata.columns ? selectedNode.metadata.columns.length : 'N/A'}</span>
                       </div>
-                      
+                      {selectedNode.metadata.description && (
+                        <div className="text-sm text-gray-700 mt-2">
+                          <span className="font-semibold">Description:</span> {selectedNode.metadata.description}
+                        </div>
+                      )}
                       <button className="w-full mt-4 inline-flex items-center justify-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors">
                         <Eye className="w-4 h-4 mr-2" />
                         Preview Data

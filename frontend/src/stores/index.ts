@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Database, Table, QueryResult, QueryHistory, ChatMessage, UserPreferences } from '../types';
+import { tableApi } from '../services/api';
+import type { Table, TableSchema, SampleData } from '../types';
 
 // UI Store
 interface UIState {
@@ -134,3 +136,80 @@ export const useUserStore = create<UserState>()(
     }
   )
 );
+
+interface TableState {
+  tables: Table[];
+  selectedTable: string | null;
+  tableSchema: TableSchema | null;
+  sampleData: SampleData | null;
+  loadingTables: boolean;
+  loadingSchema: boolean;
+  loadingDescription: boolean;
+}
+
+interface TableActions {
+  fetchTables: (databaseId: string) => Promise<void>;
+  fetchTableSchema: (databaseId: string, tableName: string) => Promise<void>;
+  fetchSampleData: (databaseId: string, tableName: string) => Promise<void>;
+  generateTableDescription: (databaseId: string, tableName: string, regenerate?: boolean) => Promise<void>;
+  setSelectedTable: (tableName: string | null) => void;
+  clearTableData: () => void;
+}
+
+export const useTableStore = create<TableState & TableActions>((set) => ({
+  tables: [],
+  selectedTable: null,
+  tableSchema: null,
+  sampleData: null,
+  loadingTables: false,
+  loadingSchema: false,
+  loadingDescription: false,
+
+  fetchTables: async (databaseId) => {
+    set({ loadingTables: true });
+    try {
+      const { tables } = await tableApi.getTables(databaseId);
+      set({ tables });
+    } catch (e) {
+      set({ tables: [] });
+    } finally {
+      set({ loadingTables: false });
+    }
+  },
+
+  fetchTableSchema: async (databaseId, tableName) => {
+    set({ loadingSchema: true });
+    try {
+      const schema = await tableApi.getTableSchema(databaseId, tableName);
+      set({ tableSchema: schema });
+    } catch (e) {
+      set({ tableSchema: null });
+    } finally {
+      set({ loadingSchema: false });
+    }
+  },
+
+  fetchSampleData: async (databaseId, tableName) => {
+    try {
+      const sample = await tableApi.getSampleData(databaseId, tableName);
+      set({ sampleData: sample });
+    } catch (e) {
+      set({ sampleData: null });
+    }
+  },
+
+  generateTableDescription: async (databaseId, tableName, regenerate = false) => {
+    set({ loadingDescription: true });
+    try {
+      const { description } = await tableApi.generateDescription(databaseId, tableName, regenerate);
+      set({ tableSchema: { ...useTableStore.getState().tableSchema, description } });
+    } catch (e) {
+      // Optionally handle error
+    } finally {
+      set({ loadingDescription: false });
+    }
+  },
+
+  setSelectedTable: (tableName) => set({ selectedTable: tableName }),
+  clearTableData: () => set({ tableSchema: null, sampleData: null }),
+}));
