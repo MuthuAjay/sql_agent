@@ -5,7 +5,7 @@ import { Toaster } from 'react-hot-toast';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { AppLayout } from './components/layout/AppLayout';
 import { HomePage } from './pages/HomePage';
-import { SchemaPage } from './pages/SchemaPage';
+import SchemaPage from './pages/SchemaPage';
 import { ChatPage } from './pages/ChatPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
