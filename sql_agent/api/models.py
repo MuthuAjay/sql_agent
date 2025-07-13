@@ -6,7 +6,7 @@ providing validation, serialization, and documentation.
 """
 
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Literal
 from enum import Enum
 
 from pydantic import BaseModel, Field, validator
@@ -206,3 +206,11 @@ class FeedbackRequest(BaseModel):
         if not 1 <= v <= 5:
             raise ValueError("Rating must be between 1 and 5")
         return v 
+
+
+class DatabaseInfo(BaseModel):
+    id: str
+    name: str
+    type: Literal["postgresql", "mysql", "sqlite", "mongodb"]
+    status: Literal["connected", "disconnected", "connecting", "error"]
+    lastSync: str 

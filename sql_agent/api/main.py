@@ -17,6 +17,7 @@ from sql_agent.core.config import settings
 from sql_agent.core.database import db_manager
 from sql_agent.agents.orchestrator import AgentOrchestrator
 from sql_agent.mcp.server import mcp_server as mcp_fastapi_app
+from .routes import query, sql, analysis, viz, schema
 
 # Configure structured logging
 logger = structlog.get_logger(__name__)
@@ -35,8 +36,9 @@ async def lifespan(app: FastAPI):
     logger.info("Starting SQL Agent API")
     
     try:
-        # Initialize database manager (handled by MCP lifespan now)
+        # Initialize database manager
         database_manager = db_manager
+        await database_manager.initialize()  # <-- Ensure async engine is initialized
         
         # Initialize agent orchestrator
         try:
@@ -223,8 +225,6 @@ async def root() -> Dict[str, str]:
 
 
 # Import and include routers
-from .routes import query, sql, analysis, viz, schema
-
 app.include_router(query.router, prefix="/api/v1", tags=["query"])
 app.include_router(sql.router, prefix="/api/v1/sql", tags=["sql"])
 app.include_router(analysis.router, prefix="/api/v1/analysis", tags=["analysis"])

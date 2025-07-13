@@ -9,18 +9,18 @@ from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Request
 
 from sql_agent.api.models import (
-    SchemaResponse, TableInfo, ColumnInfo
+    SchemaResponse, TableInfo, ColumnInfo, DatabaseInfo
 )
+from sql_agent.core.database import db_manager
 
 router = APIRouter()
 
 
 def get_database() -> Any:
     """Get the database manager instance."""
-    from sql_agent.api.main import database_manager
-    if database_manager is None:
+    if db_manager is None:
         raise HTTPException(status_code=503, detail="Database manager not initialized")
-    return database_manager
+    return db_manager
 
 
 @router.get("/", response_model=SchemaResponse)
@@ -275,4 +275,27 @@ async def get_sample_data(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get sample data: {str(e)}"
-        ) 
+        )
+
+
+@router.get("/databases", response_model=List[DatabaseInfo])
+async def get_databases(database_manager = Depends(get_database)):
+    """
+    Get list of available databases.
+    """
+    from sql_agent.core.config import settings
+    try:
+        db_status = "connected" if await database_manager.test_connection() else "disconnected"
+        db_type = settings.database_type
+        db_name = settings.database_url.split("/")[-1] or "default"
+        return [
+            DatabaseInfo(
+                id="default",
+                name=db_name,
+                type=db_type,
+                status=db_status,
+                lastSync=""
+            )
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get databases: {e}") 
