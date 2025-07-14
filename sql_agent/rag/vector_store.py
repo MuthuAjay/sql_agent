@@ -54,7 +54,7 @@ class SchemaSearchContext:
     include_sample_data: bool = True
 
 
-class EnhancedVectorStore:
+class VectorStore:
     """Enhanced vector store for intelligent schema context management."""
     
     def __init__(self, collection_name: str = "sql_agent_schema_v2"):
@@ -1107,4 +1107,4 @@ class EnhancedVectorStore:
 
 
 # Global enhanced vector store instance
-vector_store = EnhancedVectorStore()
+vector_store = VectorStore()

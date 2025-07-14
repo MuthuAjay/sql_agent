@@ -1,4 +1,4 @@
-"""LLM provider management for SQL Agent."""
+"""LLM provider management for SQL Agent with schema-aware prompting."""
 
 import logging
 from abc import ABC, abstractmethod
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class LLMProvider(ABC):
-    """Abstract base class for LLM providers."""
+    """Abstract base class for LLM providers with schema awareness."""
     
     def __init__(self, model_name: str, temperature: float = 0.1):
         self.model_name = model_name
@@ -38,10 +38,221 @@ class LLMProvider(ABC):
     ) -> Dict[str, Any]:
         """Generate a response with tool calls."""
         pass
+    
+    # New schema-aware methods for Phase 2
+    
+    async def generate_with_schema_context(
+        self, 
+        query: str, 
+        schema_context: Dict[str, Any],
+        task_type: str = "sql_generation"
+    ) -> str:
+        """Generate response with schema context for intelligent prompting."""
+        try:
+            # Build schema-aware prompt
+            schema_prompt = self._build_schema_aware_prompt(query, schema_context, task_type)
+            
+            messages = [
+                SystemMessage(content=schema_prompt["system_prompt"]),
+                HumanMessage(content=schema_prompt["user_prompt"])
+            ]
+            
+            return await self.generate(messages)
+            
+        except Exception as e:
+            logger.error(f"Schema-aware generation failed: {e}")
+            # Fallback to basic generation
+            return await self.generate([HumanMessage(content=query)])
+    
+    def _build_schema_aware_prompt(
+        self, 
+        query: str, 
+        schema_context: Dict[str, Any], 
+        task_type: str
+    ) -> Dict[str, str]:
+        """Build schema-aware prompts based on task type."""
+        
+        # Extract schema information
+        selected_tables = schema_context.get("selected_tables", [])
+        enriched_context = schema_context.get("enriched_context", {})
+        business_domains = schema_context.get("business_domains", [])
+        relationships = enriched_context.get("relationships", {})
+        
+        # Build schema context string
+        schema_info = self._format_schema_context(
+            selected_tables, enriched_context, relationships
+        )
+        
+        # Task-specific prompts
+        if task_type == "sql_generation":
+            return self._build_sql_generation_prompt(query, schema_info, business_domains)
+        elif task_type == "analysis":
+            return self._build_analysis_prompt(query, schema_info, business_domains)
+        elif task_type == "visualization":
+            return self._build_visualization_prompt(query, schema_info, business_domains)
+        else:
+            return self._build_generic_prompt(query, schema_info)
+    
+    def _format_schema_context(
+        self, 
+        selected_tables: List[str], 
+        enriched_context: Dict[str, Any],
+        relationships: Dict[str, Any]
+    ) -> str:
+        """Format schema context for prompts."""
+        context_parts = []
+        
+        if selected_tables:
+            context_parts.append(f"Relevant Tables: {', '.join(selected_tables)}")
+        
+        # Add column information if available
+        column_contexts = enriched_context.get("column_contexts", {})
+        for table_name, columns in column_contexts.items():
+            if columns:
+                column_names = [col.get("column_name", "") for col in columns[:10]]  # Limit to 10 columns
+                context_parts.append(f"{table_name} columns: {', '.join(filter(None, column_names))}")
+        
+        # Add relationship information
+        if relationships.get("relationships"):
+            rel_info = []
+            for rel in relationships["relationships"][:3]:  # Limit to 3 relationships
+                source = rel.get("source_table", "")
+                targets = rel.get("target_tables", [])
+                if source and targets:
+                    rel_info.append(f"{source} → {', '.join(targets)}")
+            
+            if rel_info:
+                context_parts.append(f"Table relationships: {'; '.join(rel_info)}")
+        
+        return "\n".join(context_parts) if context_parts else "No schema context available"
+    
+    def _build_sql_generation_prompt(
+        self, 
+        query: str, 
+        schema_info: str, 
+        business_domains: List[str]
+    ) -> Dict[str, str]:
+        """Build SQL generation prompt with schema context."""
+        
+        domain_context = f"Business context: {', '.join(business_domains)}" if business_domains else ""
+        
+        system_prompt = f"""You are an expert SQL developer. Generate accurate SQL queries based on natural language requests.
+
+Database Schema Context:
+{schema_info}
+
+{domain_context}
+
+Guidelines:
+1. Use ONLY the tables and columns mentioned in the schema context
+2. Use proper JOIN syntax when combining tables
+3. Follow PostgreSQL syntax standards
+4. Include appropriate WHERE clauses for filtering
+5. Use meaningful aliases for tables
+6. Return clean, executable SQL without explanations
+
+Format: Return only the SQL query, no additional text."""
+
+        user_prompt = f"Generate SQL for: {query}"
+        
+        return {
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt
+        }
+    
+    def _build_analysis_prompt(
+        self, 
+        query: str, 
+        schema_info: str, 
+        business_domains: List[str]
+    ) -> Dict[str, str]:
+        """Build analysis prompt with schema context."""
+        
+        domain_context = f"Business domains: {', '.join(business_domains)}" if business_domains else ""
+        
+        system_prompt = f"""You are a data analyst expert. Analyze data and provide business insights.
+
+Available Data Schema:
+{schema_info}
+
+{domain_context}
+
+Guidelines:
+1. Focus on the specific tables and columns available
+2. Consider business context when providing insights
+3. Suggest relevant metrics and KPIs
+4. Identify patterns and trends
+5. Provide actionable recommendations
+6. Structure your response clearly
+
+Format: Provide analysis insights in a structured format."""
+
+        user_prompt = f"Analyze: {query}"
+        
+        return {
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt
+        }
+    
+    def _build_visualization_prompt(
+        self, 
+        query: str, 
+        schema_info: str, 
+        business_domains: List[str]
+    ) -> Dict[str, str]:
+        """Build visualization prompt with schema context."""
+        
+        domain_context = f"Business context: {', '.join(business_domains)}" if business_domains else ""
+        
+        system_prompt = f"""You are a data visualization expert. Design appropriate charts and visualizations.
+
+Available Data Schema:
+{schema_info}
+
+{domain_context}
+
+Guidelines:
+1. Choose the most appropriate chart type for the data
+2. Consider the business context and audience
+3. Ensure the visualization clearly communicates insights
+4. Suggest interactive features if relevant
+5. Recommend color schemes and styling
+6. Structure your response clearly
+
+Format: Provide visualization recommendations in a structured format."""
+
+        user_prompt = f"Create visualization for: {query}"
+        
+        return {
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt
+        }
+    
+    def _build_generic_prompt(self, query: str, schema_info: str) -> Dict[str, str]:
+        """Build generic prompt with schema context."""
+        
+        system_prompt = f"""You are an intelligent database assistant.
+
+Available Database Schema:
+{schema_info}
+
+Guidelines:
+1. Use the available schema information to provide accurate responses
+2. Be specific and practical in your recommendations
+3. Consider the database structure in your responses
+
+Format: Provide clear, actionable responses."""
+
+        user_prompt = query
+        
+        return {
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt
+        }
 
 
 class OpenAIProvider(LLMProvider):
-    """OpenAI LLM provider."""
+    """OpenAI LLM provider with schema awareness."""
     
     def __init__(self, model_name: str = "gpt-4", temperature: float = 0.1):
         super().__init__(model_name, temperature)
@@ -82,8 +293,6 @@ class OpenAIProvider(LLMProvider):
     ) -> Dict[str, Any]:
         """Generate a response with tool calls from OpenAI."""
         llm = self.get_llm()
-        # For OpenAI, we need to use function calling
-        # This is a simplified implementation
         response = await llm.ainvoke(messages)
         content = response.content if isinstance(response, AIMessage) else str(response.content)
         return {
@@ -93,7 +302,7 @@ class OpenAIProvider(LLMProvider):
 
 
 class GoogleProvider(LLMProvider):
-    """Google LLM provider."""
+    """Google LLM provider with schema awareness."""
     
     def __init__(self, model_name: str = "gemini-pro", temperature: float = 0.1):
         super().__init__(model_name, temperature)
@@ -132,10 +341,9 @@ class GoogleProvider(LLMProvider):
         messages: List[BaseMessage], 
         tools: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
+        
         """Generate a response with tool calls from Google."""
         llm = self.get_llm()
-        # For Google, we need to use function calling
-        # This is a simplified implementation
         response = await llm.ainvoke(messages)
         content = response.content if isinstance(response, AIMessage) else str(response.content)
         return {
@@ -145,7 +353,7 @@ class GoogleProvider(LLMProvider):
 
 
 class OllamaProvider(LLMProvider):
-    """Ollama LLM provider for local models."""
+    """Ollama LLM provider for local models with schema awareness."""
     
     def __init__(self, model_name: str = "llama2", temperature: float = 0.1):
         super().__init__(model_name, temperature)
@@ -184,8 +392,6 @@ class OllamaProvider(LLMProvider):
     ) -> Dict[str, Any]:
         """Generate a response with tool calls from Ollama."""
         llm = self.get_llm()
-        # For Ollama, we need to use function calling
-        # This is a simplified implementation
         response = await llm.ainvoke(messages)
         content = response.content if isinstance(response, AIMessage) else str(response.content)
         return {
@@ -195,7 +401,7 @@ class OllamaProvider(LLMProvider):
 
 
 class LLMFactory:
-    """Factory for creating LLM providers."""
+    """Factory for creating LLM providers with schema awareness."""
     
     _providers = {
         "openai": OpenAIProvider,
@@ -267,4 +473,4 @@ class LLMFactory:
         """Register a new LLM provider."""
         if not issubclass(provider_class, LLMProvider):
             raise ValueError("Provider class must inherit from LLMProvider")
-        cls._providers[name] = provider_class 
+        cls._providers[name] = provider_class
