@@ -35,16 +35,16 @@ orchestrator = None
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown."""
     global database_manager, orchestrator
-    
+
     # Startup
     logger.info("Starting SQL Agent API")
-    
+
     try:
         # Initialize database manager
         database_manager = db_manager
         await database_manager.initialize()
         logger.info("Database manager initialized")
-        
+
         # Initialize agent orchestrator
         try:
             orchestrator = AgentOrchestrator()
@@ -53,35 +53,35 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Agent orchestrator initialization failed: {e}")
             orchestrator = None
-        
+
         # Set global instances for dependency injection
         set_global_instances(database_manager, orchestrator)
         logger.info("Dependencies configured")
-        
+
         logger.info("SQL Agent API startup complete")
         yield
-        
+
     except Exception as e:
         logger.error("Failed to start SQL Agent API", error=str(e))
         raise
     finally:
         # Shutdown
         logger.info("Shutting down SQL Agent API")
-        
+
         if orchestrator:
             try:
                 await orchestrator.cleanup()
                 logger.info("Agent orchestrator cleaned up")
             except Exception as e:
                 logger.warning(f"Error during orchestrator cleanup: {e}")
-        
+
         if database_manager:
             try:
                 await database_manager.close()
                 logger.info("Database manager closed")
             except Exception as e:
                 logger.warning(f"Error during database cleanup: {e}")
-        
+
         logger.info("SQL Agent API shutdown complete")
 
 
@@ -100,7 +100,7 @@ app = FastAPI(
         404: {"model": ErrorResponse},
         422: {"model": ErrorResponse},
         500: {"model": ErrorResponse},
-    }
+    },
 )
 
 # Mount the FastMCP application
@@ -128,8 +128,7 @@ app.add_middleware(
 # Trusted Host Configuration
 if settings.ENVIRONMENT == "production":
     app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=settings.ALLOWED_HOSTS or ["*"]
+        TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS or ["*"]
     )
 
 
@@ -148,10 +147,10 @@ async def add_request_id(request: Request, call_next):
     """Add request ID for tracing."""
     request_id = request.headers.get("X-Request-ID", f"req_{int(time.time() * 1000)}")
     request.state.request_id = request_id
-    
+
     # Add request ID to logger context
     logger = structlog.get_logger(__name__).bind(request_id=request_id)
-    
+
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
     return response
@@ -161,7 +160,7 @@ async def add_request_id(request: Request, call_next):
 async def log_requests(request: Request, call_next):
     """Log incoming requests."""
     start_time = time.time()
-    
+
     logger.info(
         "Request started",
         method=request.method,
@@ -169,22 +168,22 @@ async def log_requests(request: Request, call_next):
         query_params=dict(request.query_params),
         client_ip=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
-        request_id=getattr(request.state, "request_id", "unknown")
+        request_id=getattr(request.state, "request_id", "unknown"),
     )
-    
+
     response = await call_next(request)
-    
+
     duration = time.time() - start_time
-    
+
     logger.info(
         "Request completed",
         method=request.method,
         path=request.url.path,
         status_code=response.status_code,
         duration=duration,
-        request_id=getattr(request.state, "request_id", "unknown")
+        request_id=getattr(request.state, "request_id", "unknown"),
     )
-    
+
     return response
 
 
@@ -197,9 +196,9 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         detail=exc.detail,
         path=request.url.path,
         method=request.method,
-        request_id=getattr(request.state, "request_id", "unknown")
+        request_id=getattr(request.state, "request_id", "unknown"),
     )
-    
+
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -208,9 +207,9 @@ async def http_exception_handler(request: Request, exc: HTTPException):
                 "status_code": exc.status_code,
                 "detail": exc.detail,
                 "request_id": getattr(request.state, "request_id", "unknown"),
-                "timestamp": time.time()
+                "timestamp": time.time(),
             }
-        }
+        },
     )
 
 
@@ -224,9 +223,9 @@ async def general_exception_handler(request: Request, exc: Exception):
         path=request.url.path,
         method=request.method,
         request_id=getattr(request.state, "request_id", "unknown"),
-        exc_info=True
+        exc_info=True,
     )
-    
+
     return JSONResponse(
         status_code=500,
         content={
@@ -234,9 +233,9 @@ async def general_exception_handler(request: Request, exc: Exception):
                 "type": "internal_error",
                 "detail": "An internal server error occurred",
                 "request_id": getattr(request.state, "request_id", "unknown"),
-                "timestamp": time.time()
+                "timestamp": time.time(),
             }
-        }
+        },
     )
 
 
@@ -247,9 +246,9 @@ async def health_check() -> HealthCheckResponse:
         "status": "healthy",
         "timestamp": time.time(),
         "version": "1.0.0",
-        "services": {}
+        "services": {},
     }
-    
+
     # Check database connection
     try:
         if database_manager:
@@ -261,7 +260,7 @@ async def health_check() -> HealthCheckResponse:
     except Exception as e:
         health_status["services"]["database"] = f"unhealthy: {str(e)}"
         health_status["status"] = "degraded"
-    
+
     # Check MCP server
     try:
         if mcp_fastapi_app:
@@ -272,7 +271,7 @@ async def health_check() -> HealthCheckResponse:
     except Exception as e:
         health_status["services"]["mcp_server"] = f"unhealthy: {str(e)}"
         health_status["status"] = "degraded"
-    
+
     # Check orchestrator
     try:
         if orchestrator:
@@ -284,7 +283,7 @@ async def health_check() -> HealthCheckResponse:
     except Exception as e:
         health_status["services"]["orchestrator"] = f"unhealthy: {str(e)}"
         health_status["status"] = "degraded"
-    
+
     return HealthCheckResponse(**health_status)
 
 
@@ -296,7 +295,7 @@ async def root() -> Dict[str, str]:
         "version": "1.0.0",
         "docs": "/docs",
         "health": "/health",
-        "status": "running"
+        "status": "running",
     }
 
 
@@ -313,52 +312,52 @@ async def api_info() -> Dict[str, Any]:
             "Data analysis and profiling",
             "Visualization suggestions",
             "Schema exploration",
-            "Query optimization"
+            "Query optimization",
         ],
         "endpoints": {
             "query": "/api/v1/query",
             "sql": "/api/v1/sql",
             "analysis": "/api/v1/analysis",
             "visualization": "/api/v1/visualization",
-            "schema": "/api/v1/schema"
-        }
+            "schema": "/api/v1/schema",
+        },
     }
 
 
 # Include routers with proper prefixes and tags
 app.include_router(
-    query.router, 
-    prefix="/api/v1/query", 
+    query.router,
+    prefix="/api/v1/query",
     tags=["Query Processing"],
-    responses={404: {"description": "Query not found"}}
+    responses={404: {"description": "Query not found"}},
 )
 
 app.include_router(
-    sql.router, 
-    prefix="/api/v1/sql", 
+    sql.router,
+    prefix="/api/v1/sql",
     tags=["SQL Execution"],
-    responses={400: {"description": "Invalid SQL"}}
+    responses={400: {"description": "Invalid SQL"}},
 )
 
 app.include_router(
-    analysis.router, 
-    prefix="/api/v1/analysis", 
+    analysis.router,
+    prefix="/api/v1/analysis",
     tags=["Data Analysis"],
-    responses={400: {"description": "Analysis failed"}}
+    responses={400: {"description": "Analysis failed"}},
 )
 
 app.include_router(
-    viz.router, 
-    prefix="/api/v1/visualization", 
+    viz.router,
+    prefix="/api/v1/visualization",
     tags=["Data Visualization"],
-    responses={400: {"description": "Visualization failed"}}
+    responses={400: {"description": "Visualization failed"}},
 )
 
 app.include_router(
-    schema.router, 
-    prefix="/api/v1/schema", 
+    schema.router,
+    prefix="/api/v1/schema",
     tags=["Schema Management"],
-    responses={404: {"description": "Schema not found"}}
+    responses={404: {"description": "Schema not found"}},
 )
 
 
@@ -369,10 +368,10 @@ async def get_status():
     return {
         "api_status": "running",
         "timestamp": time.time(),
-        "uptime": time.time() - start_time if 'start_time' in globals() else None,
+        "uptime": time.time() - start_time if "start_time" in globals() else None,
         "database_connected": database_manager is not None,
         "orchestrator_available": orchestrator is not None,
-        "mcp_server_mounted": mcp_fastapi_app is not None
+        "mcp_server_mounted": mcp_fastapi_app is not None,
     }
 
 
@@ -382,7 +381,7 @@ async def ping():
     return {
         "message": "pong",
         "timestamp": time.time(),
-        "request_id": f"ping_{int(time.time() * 1000)}"
+        "request_id": f"ping_{int(time.time() * 1000)}",
     }
 
 
@@ -391,21 +390,18 @@ async def ping():
 async def value_error_handler(request: Request, exc: ValueError):
     """Handle ValueError exceptions."""
     logger.warning(
-        "Value error",
-        error=str(exc),
-        path=request.url.path,
-        method=request.method
+        "Value error", error=str(exc), path=request.url.path, method=request.method
     )
-    
+
     return JSONResponse(
         status_code=400,
         content={
             "error": {
                 "type": "validation_error",
                 "detail": str(exc),
-                "request_id": getattr(request.state, "request_id", "unknown")
+                "request_id": getattr(request.state, "request_id", "unknown"),
             }
-        }
+        },
     )
 
 
@@ -413,21 +409,18 @@ async def value_error_handler(request: Request, exc: ValueError):
 async def timeout_error_handler(request: Request, exc: TimeoutError):
     """Handle timeout exceptions."""
     logger.error(
-        "Request timeout",
-        error=str(exc),
-        path=request.url.path,
-        method=request.method
+        "Request timeout", error=str(exc), path=request.url.path, method=request.method
     )
-    
+
     return JSONResponse(
         status_code=408,
         content={
             "error": {
                 "type": "timeout_error",
                 "detail": "Request timed out",
-                "request_id": getattr(request.state, "request_id", "unknown")
+                "request_id": getattr(request.state, "request_id", "unknown"),
             }
-        }
+        },
     )
 
 
@@ -436,12 +429,12 @@ start_time = time.time()
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "sql_agent.api.main:app",
         host="0.0.0.0",
         port=8000,
         reload=True if settings.ENVIRONMENT == "development" else False,
         log_level="info",
-        access_log=True
+        access_log=True,
     )
