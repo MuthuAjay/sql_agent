@@ -443,7 +443,9 @@ class DatabaseManager:
             for batch_result in batch_results:
                 if isinstance(batch_result, dict):
                     all_tables.update(batch_result)
-            
+
+            print("**************\n all table data \n", all_tables)
+
             return {
                 "database_name": "sql_agent_db",
                 "tables": list(all_tables.values()),
@@ -469,7 +471,9 @@ class DatabaseManager:
                         # Log error but continue processing other tables
                         print(f"Failed to process table {table_row[0]}: {e}")
                         continue
-            
+
+            print("**************\n table_data - _process_table_batch \n", tables_data)
+
             return tables_data
     
     async def _extract_single_table_data(self, conn, table_row) -> Dict[str, Any]:
@@ -509,6 +513,8 @@ class DatabaseManager:
         if self.config["enable_statistics_collection"]:
             stats_data = await self._extract_table_statistics(conn, table_name)
             table_data["statistics"] = stats_data
+            
+        print("**************\n table_data \n", table_data)
         
         return table_data
     
@@ -531,7 +537,7 @@ class DatabaseManager:
             AND cols.table_schema = 'public'
             ORDER BY cols.ordinal_position
         """
-        
+        print("Extracting columns for table:", table_name)
         result = await conn.execute(text(columns_query), {"table_name": table_name})
         column_rows = result.fetchall()
         
@@ -675,7 +681,7 @@ class DatabaseManager:
                 last_autovacuum,
                 last_analyze,
                 last_autoanalyze,
-                pg_total_relation_size(:table_name) as total_size
+                pg_total_relation_size(quote_ident($1)::regclass) as total_size
             FROM pg_stat_user_tables 
             WHERE relname = :table_name
         """
