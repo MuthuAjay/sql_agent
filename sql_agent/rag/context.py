@@ -169,7 +169,8 @@ class ContextManager:
         """Retrieve schema context using vector search."""
         try:
             # Generate query embedding
-            query_embedding = await self.embedding_service.embed_query(query)
+            embedding_result = await self.embedding_service.embed_query(query)
+            query_embedding = embedding_result.embedding
             
             # Search for similar contexts
             search_results = await self.vector_store.similarity_search(
