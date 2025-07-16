@@ -63,7 +63,7 @@ class SQLAgent(BaseAgent):
                            session_id=state.session_id)
             
             # Around line 60-65, add this:
-            self.logger.error("DEBUG_SQL_BEFORE_SAFETY_CHECK", sql=generated_sql, sql_length=len(generated_sql))
+            # self.logger.error("DEBUG_SQL_BEFORE_SAFETY_CHECK", sql=generated_sql, sql_length=len(generated_sql))
             
             # Safety and validation
             if not self._is_sql_safe(generated_sql):
