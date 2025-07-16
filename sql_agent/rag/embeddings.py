@@ -16,7 +16,7 @@ import hashlib
 import numpy as np
 from langchain_openai import OpenAIEmbeddings
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 from ..core.config import settings
 from ..utils.logging import get_logger
@@ -423,7 +423,7 @@ class HuggingFaceEmbeddingService(BaseEmbeddingService):
             encode_kwargs={
                 'normalize_embeddings': True,
                 'batch_size': 32,
-                'show_progress_bar': False
+                # 'show_progress_bar': False
             }
         )
         

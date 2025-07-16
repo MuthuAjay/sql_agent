@@ -30,6 +30,32 @@ logger = structlog.get_logger(__name__)
 database_manager = None
 orchestrator = None
 
+"""
+RAG Initialization Fix
+
+Add this to your main.py startup to properly initialize RAG components.
+"""
+
+# Add this to your sql_agent/api/main.py in the lifespan function:
+
+async def initialize_rag_components():
+    """Initialize RAG components with proper error handling."""
+    logger.info("Initializing RAG components")
+    
+    try:
+        # Initialize context manager
+        from sql_agent.rag.context import context_manager
+        await context_manager.initialize()
+        logger.info("RAG context manager initialized successfully")
+        
+        return True
+        
+    except Exception as e:
+        logger.warning(f"RAG initialization failed (will use fallback): {e}")
+        # Don't fail startup - RAG is optional
+        return False
+
+# Modify your lifespan function in main.py:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -54,6 +80,13 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Agent orchestrator initialization failed: {e}")
             orchestrator = None
 
+        # ADDED: Initialize RAG components
+        rag_initialized = await initialize_rag_components()
+        if rag_initialized:
+            logger.info("RAG components initialized successfully")
+        else:
+            logger.info("RAG components unavailable - using fallback mode")
+
         # Set global instances for dependency injection
         set_global_instances(database_manager, orchestrator)
         logger.info("Dependencies configured")
@@ -75,6 +108,14 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.warning(f"Error during orchestrator cleanup: {e}")
 
+        # ADDED: Cleanup RAG components
+        try:
+            from sql_agent.rag.context import context_manager
+            # Context manager cleanup (if it has a cleanup method)
+            logger.info("RAG components cleaned up")
+        except Exception as e:
+            logger.warning(f"Error during RAG cleanup: {e}")
+
         if database_manager:
             try:
                 await database_manager.close()
@@ -83,6 +124,59 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Error during database cleanup: {e}")
 
         logger.info("SQL Agent API shutdown complete")
+
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+#     """Application lifespan manager for startup and shutdown."""
+#     global database_manager, orchestrator
+
+#     # Startup
+#     logger.info("Starting SQL Agent API")
+
+#     try:
+#         # Initialize database manager
+#         database_manager = db_manager
+#         await database_manager.initialize()
+#         logger.info("Database manager initialized")
+
+#         # Initialize agent orchestrator
+#         try:
+#             orchestrator = AgentOrchestrator()
+#             await orchestrator.initialize()
+#             logger.info("Agent orchestrator initialized")
+#         except Exception as e:
+#             logger.warning(f"Agent orchestrator initialization failed: {e}")
+#             orchestrator = None
+
+#         # Set global instances for dependency injection
+#         set_global_instances(database_manager, orchestrator)
+#         logger.info("Dependencies configured")
+
+#         logger.info("SQL Agent API startup complete")
+#         yield
+
+#     except Exception as e:
+#         logger.error("Failed to start SQL Agent API", error=str(e))
+#         raise
+#     finally:
+#         # Shutdown
+#         logger.info("Shutting down SQL Agent API")
+
+#         if orchestrator:
+#             try:
+#                 await orchestrator.cleanup()
+#                 logger.info("Agent orchestrator cleaned up")
+#             except Exception as e:
+#                 logger.warning(f"Error during orchestrator cleanup: {e}")
+
+#         if database_manager:
+#             try:
+#                 await database_manager.close()
+#                 logger.info("Database manager closed")
+#             except Exception as e:
+#                 logger.warning(f"Error during database cleanup: {e}")
+
+#         logger.info("SQL Agent API shutdown complete")
 
 
 # Create FastAPI application

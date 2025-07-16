@@ -444,7 +444,7 @@ class DatabaseManager:
                 if isinstance(batch_result, dict):
                     all_tables.update(batch_result)
 
-            print("**************\n all table data \n", all_tables)
+            # print("**************\n all table data \n", all_tables)
 
             return {
                 "database_name": "sql_agent_db",
@@ -472,7 +472,7 @@ class DatabaseManager:
                         print(f"Failed to process table {table_row[0]}: {e}")
                         continue
 
-            print("**************\n table_data - _process_table_batch \n", tables_data)
+            # print("**************\n table_data - _process_table_batch \n", tables_data)
 
             return tables_data
     
@@ -514,7 +514,7 @@ class DatabaseManager:
             stats_data = await self._extract_table_statistics(conn, table_name)
             table_data["statistics"] = stats_data
             
-        print("**************\n table_data \n", table_data)
+        # print("**************\n table_data \n", table_data)
         
         return table_data
     
@@ -537,7 +537,7 @@ class DatabaseManager:
             AND cols.table_schema = 'public'
             ORDER BY cols.ordinal_position
         """
-        print("Extracting columns for table:", table_name)
+        # print("Extracting columns for table:", table_name)
         result = await conn.execute(text(columns_query), {"table_name": table_name})
         column_rows = result.fetchall()
         

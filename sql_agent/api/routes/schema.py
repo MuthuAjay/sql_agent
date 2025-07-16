@@ -48,8 +48,8 @@ async def get_schema(
         tables = []
         total_columns = 0
         
-        print("Extracting schema information...")
-        print(schema_info)
+        # print("Extracting schema information...")
+        # print(schema_info)
         
         # FIX: schema_info returns {"tables": [...]} not {table_name: table_info}
         for table_info in schema_info.get("tables", []):

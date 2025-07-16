@@ -3,6 +3,8 @@ Enhanced schema processing for RAG functionality with dynamic database introspec
 
 This module provides dynamic schema extraction, vectorization, and context management
 for intelligent table selection in the SQL Agent system.
+
+FIXED: Updated to use SQLAlchemy async pattern instead of cursor-based connections.
 """
 
 import asyncio
@@ -10,6 +12,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 import json
 
+from sqlalchemy import text
 from ..core.database import db_manager
 from ..core.state import SchemaContext
 from ..utils.logging import get_logger
@@ -49,8 +52,15 @@ class SchemaProcessor:
                 self.logger.debug("schema_cache_hit", database=database_name)
                 return self._schema_cache[cache_key]
             
-            # Extract schema dynamically
-            schema_data = await self._introspect_database_schema(database_name)
+            # FIXED: Use main database manager instead of separate introspection
+            try:
+                schema_data = await db_manager.get_database_schema(database_name)
+                self.logger.info("schema_from_main_db_manager", database=database_name, 
+                               table_count=len(schema_data.get("tables", [])))
+            except Exception as e:
+                self.logger.warning("main_db_manager_failed", error=str(e))
+                # Fallback to introspection if main DB manager fails
+                schema_data = await self._introspect_database_schema_fixed(database_name)
             
             # Enhance with business context
             enhanced_schema = await self._enhance_schema_with_context(schema_data)
@@ -62,7 +72,7 @@ class SchemaProcessor:
                 "database_schema_extracted",
                 database=database_name,
                 table_count=len(enhanced_schema.get("tables", [])),
-                extraction_method="dynamic_introspection"
+                extraction_method="main_db_manager_with_enhancement"
             )
             
             return enhanced_schema
@@ -77,118 +87,120 @@ class SchemaProcessor:
                 "error": str(e)
             }
     
-    async def _introspect_database_schema(self, database_name: str) -> Dict[str, Any]:
-        """Perform dynamic database introspection using SQL queries."""
+    async def _introspect_database_schema_fixed(self, database_name: str) -> Dict[str, Any]:
+        """
+        FIXED: Perform dynamic database introspection using SQLAlchemy async pattern.
+        This replaces the broken cursor-based approach.
+        """
         try:
-            # Get database connection
-            connection = await db_manager.get_connection(database_name)
-            if not connection:
-                raise RuntimeError(f"Cannot connect to database: {database_name}")
+            self.logger.info("using_fixed_database_introspection", database=database_name)
             
-            # Introspection queries for PostgreSQL
-            tables_query = """
-                SELECT 
-                    t.table_name,
-                    COALESCE(obj_description(c.oid), '') as table_comment,
-                    t.table_type
-                FROM information_schema.tables t
-                LEFT JOIN pg_class c ON c.relname = t.table_name AND c.relkind = 'r'
-                WHERE t.table_schema = 'public' 
-                AND t.table_type = 'BASE TABLE'
-                ORDER BY t.table_name;
-            """
-            
-            columns_query = """
-                SELECT 
-                    cols.table_name,
-                    cols.column_name,
-                    cols.data_type,
-                    cols.is_nullable,
-                    cols.column_default,
-                    cols.character_maximum_length,
-                    cols.numeric_precision,
-                    cols.numeric_scale,
-                    cols.ordinal_position,
-                    COALESCE(col_description(pgc.oid, cols.ordinal_position), '') as column_comment
-                FROM information_schema.columns cols
-                LEFT JOIN pg_class pgc ON pgc.relname = cols.table_name
-                WHERE cols.table_schema = 'public'
-                ORDER BY cols.table_name, cols.ordinal_position;
-            """
-            
-            # Foreign key relationships
-            foreign_keys_query = """
-                SELECT
-                    tc.table_name,
-                    kcu.column_name,
-                    ccu.table_name AS foreign_table_name,
-                    ccu.column_name AS foreign_column_name,
-                    tc.constraint_name
-                FROM information_schema.table_constraints AS tc
-                JOIN information_schema.key_column_usage AS kcu
-                    ON tc.constraint_name = kcu.constraint_name
-                    AND tc.table_schema = kcu.table_schema
-                JOIN information_schema.constraint_column_usage AS ccu
-                    ON ccu.constraint_name = tc.constraint_name
-                    AND ccu.table_schema = tc.table_schema
-                WHERE tc.constraint_type = 'FOREIGN KEY'
-                AND tc.table_schema = 'public';
-            """
-            
-            # Primary keys
-            primary_keys_query = """
-                SELECT
-                    tc.table_name,
-                    kcu.column_name,
-                    tc.constraint_name
-                FROM information_schema.table_constraints AS tc
-                JOIN information_schema.key_column_usage AS kcu
-                    ON tc.constraint_name = kcu.constraint_name
-                    AND tc.table_schema = kcu.table_schema
-                WHERE tc.constraint_type = 'PRIMARY KEY'
-                AND tc.table_schema = 'public';
-            """
-            
-            # Table statistics (if available)
-            table_stats_query = """
-                SELECT 
-                    schemaname,
-                    tablename,
-                    n_tup_ins as inserts,
-                    n_tup_upd as updates,
-                    n_tup_del as deletes,
-                    n_live_tup as live_tuples,
-                    n_dead_tup as dead_tuples,
-                    last_vacuum,
-                    last_autovacuum,
-                    last_analyze,
-                    last_autoanalyze
-                FROM pg_stat_user_tables 
-                WHERE schemaname = 'public';
-            """
-            
-            # Execute all queries
-            async with connection.cursor() as cursor:
+            # FIXED: Use SQLAlchemy async pattern instead of cursor
+            async with db_manager._async_engine.begin() as conn:
+                
+                # Tables query
+                tables_query = text("""
+                    SELECT 
+                        t.table_name,
+                        COALESCE(obj_description(c.oid), '') as table_comment,
+                        t.table_type
+                    FROM information_schema.tables t
+                    LEFT JOIN pg_class c ON c.relname = t.table_name AND c.relkind = 'r'
+                    WHERE t.table_schema = 'public' 
+                    AND t.table_type = 'BASE TABLE'
+                    ORDER BY t.table_name
+                """)
+                
+                # Columns query
+                columns_query = text("""
+                    SELECT 
+                        cols.table_name,
+                        cols.column_name,
+                        cols.data_type,
+                        cols.is_nullable,
+                        cols.column_default,
+                        cols.character_maximum_length,
+                        cols.numeric_precision,
+                        cols.numeric_scale,
+                        cols.ordinal_position,
+                        COALESCE(col_description(pgc.oid, cols.ordinal_position), '') as column_comment
+                    FROM information_schema.columns cols
+                    LEFT JOIN pg_class pgc ON pgc.relname = cols.table_name
+                    WHERE cols.table_schema = 'public'
+                    ORDER BY cols.table_name, cols.ordinal_position
+                """)
+                
+                # Foreign keys query
+                foreign_keys_query = text("""
+                    SELECT
+                        tc.table_name,
+                        kcu.column_name,
+                        ccu.table_name AS foreign_table_name,
+                        ccu.column_name AS foreign_column_name,
+                        tc.constraint_name
+                    FROM information_schema.table_constraints AS tc
+                    JOIN information_schema.key_column_usage AS kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage AS ccu
+                        ON ccu.constraint_name = tc.constraint_name
+                        AND ccu.table_schema = tc.table_schema
+                    WHERE tc.constraint_type = 'FOREIGN KEY'
+                    AND tc.table_schema = 'public'
+                """)
+                
+                # Primary keys query
+                primary_keys_query = text("""
+                    SELECT
+                        tc.table_name,
+                        kcu.column_name,
+                        tc.constraint_name
+                    FROM information_schema.table_constraints AS tc
+                    JOIN information_schema.key_column_usage AS kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                    WHERE tc.constraint_type = 'PRIMARY KEY'
+                    AND tc.table_schema = 'public'
+                """)
+                
+                # FIXED: Execute queries using SQLAlchemy async pattern
                 # Get tables
-                await cursor.execute(tables_query)
-                table_rows = await cursor.fetchall()
+                result = await conn.execute(tables_query)
+                table_rows = result.fetchall()
                 
                 # Get columns  
-                await cursor.execute(columns_query)
-                column_rows = await cursor.fetchall()
+                result = await conn.execute(columns_query)
+                column_rows = result.fetchall()
                 
                 # Get foreign keys
-                await cursor.execute(foreign_keys_query)
-                fk_rows = await cursor.fetchall()
+                result = await conn.execute(foreign_keys_query)
+                fk_rows = result.fetchall()
                 
                 # Get primary keys
-                await cursor.execute(primary_keys_query)
-                pk_rows = await cursor.fetchall()
+                result = await conn.execute(primary_keys_query)
+                pk_rows = result.fetchall()
                 
                 # Get table statistics (optional)
+                stats_rows = []
                 try:
-                    await cursor.execute(table_stats_query)
-                    stats_rows = await cursor.fetchall()
+                    table_stats_query = text("""
+                        SELECT 
+                            schemaname,
+                            tablename,
+                            n_tup_ins as inserts,
+                            n_tup_upd as updates,
+                            n_tup_del as deletes,
+                            n_live_tup as live_tuples,
+                            n_dead_tup as dead_tuples,
+                            last_vacuum,
+                            last_autovacuum,
+                            last_analyze,
+                            last_autoanalyze
+                        FROM pg_stat_user_tables 
+                        WHERE schemaname = 'public'
+                    """)
+                    result = await conn.execute(table_stats_query)
+                    stats_rows = result.fetchall()
                 except Exception as e:
                     self.logger.warning("table_stats_query_failed", error=str(e))
                     stats_rows = []
@@ -198,10 +210,14 @@ class SchemaProcessor:
                 database_name, table_rows, column_rows, fk_rows, pk_rows, stats_rows
             )
             
+            self.logger.info("database_introspection_completed", 
+                           database=database_name, 
+                           table_count=len(schema_data.get("tables", [])))
+            
             return schema_data
             
         except Exception as e:
-            self.logger.error("database_introspection_failed", database=database_name, error=str(e))
+            self.logger.error("database_introspection_failed", database=database_name, error=str(e), exc_info=True)
             raise
     
     async def _process_introspection_results(
@@ -314,10 +330,10 @@ class SchemaProcessor:
                     "last_autoanalyze": row[10]
                 }
         
-        # Add sample data for each table
+        # Add sample data for each table (using main database manager)
         for table_name in tables_info.keys():
             try:
-                sample_data = await self._get_table_sample_data(table_name)
+                sample_data = await self._get_table_sample_data_fixed(table_name)
                 tables_info[table_name]["sample_data"] = sample_data
             except Exception as e:
                 self.logger.warning("get_sample_data_failed", table=table_name, error=str(e))
@@ -326,7 +342,7 @@ class SchemaProcessor:
         return {
             "database_name": database_name,
             "tables": list(tables_info.values()),
-            "extraction_method": "dynamic_introspection",
+            "extraction_method": "fixed_introspection",
             "extraction_timestamp": datetime.utcnow().isoformat(),
             "table_count": len(tables_info),
             "total_columns": sum(len(t["columns"]) for t in tables_info.values())
@@ -364,24 +380,95 @@ class SchemaProcessor:
             self.logger.warning("schema_enhancement_failed", error=str(e))
             return schema_data  # Return original if enhancement fails
     
-    async def _get_table_sample_data(self, table_name: str, limit: int = 3) -> Dict[str, Any]:
-        """Get sample data from a table for context."""
+    async def _get_table_sample_data_fixed(self, table_name: str, limit: int = 3) -> Dict[str, Any]:
+        """FIXED: Get sample data from a table using main database manager."""
         try:
-            sql = f"SELECT * FROM {table_name} LIMIT {limit}"
-            result = await db_manager.execute_query(sql, timeout=10)
+            # Use main database manager's method
+            sample_data = await db_manager.get_sample_data(table_name, limit)
             
-            if result.error or not result.data:
+            if not sample_data or not sample_data.get("rows"):
                 return {"rows": [], "sample_count": 0}
             
             return {
-                "rows": result.data[:limit],
-                "sample_count": len(result.data),
-                "columns": result.columns if hasattr(result, 'columns') else []
+                "rows": sample_data.get("rows", [])[:limit],
+                "sample_count": len(sample_data.get("rows", [])),
+                "columns": sample_data.get("columns", [])
             }
             
         except Exception as e:
             self.logger.warning("get_table_sample_data_failed", table=table_name, error=str(e))
             return {"rows": [], "sample_count": 0}
+    
+    # ADDED: Extract schema contexts method for context manager
+    async def extract_schema_contexts(self, database_name: str = "default") -> List[SchemaContext]:
+        """Extract schema contexts for RAG vector storage."""
+        try:
+            self.logger.info("extracting_schema_contexts", database=database_name)
+            
+            # Get database schema
+            schema_data = await self.extract_database_schema(database_name)
+            tables = schema_data.get("tables", [])
+            
+            contexts = []
+            
+            for table in tables:
+                table_name = table.get("name", "")
+                description = table.get("enhanced_description", table.get("description", ""))
+                
+                # Create table-level context
+                table_context = SchemaContext(
+                    table_name=table_name,
+                    column_name=None,
+                    data_type=None,
+                    description=description,
+                    sample_values=[],
+                    relationships=[],
+                    embedding=None
+                )
+                contexts.append(table_context)
+                
+                # Create column-level contexts
+                column_details = table.get("column_details", {})
+                for column_name, column_detail in column_details.items():
+                    column_context = SchemaContext(
+                        table_name=table_name,
+                        column_name=column_name,
+                        data_type=column_detail.get("type"),
+                        description=column_detail.get("comment", ""),
+                        sample_values=[],
+                        relationships=[],
+                        embedding=None
+                    )
+                    contexts.append(column_context)
+            
+            self.logger.info("schema_contexts_extracted", 
+                           database=database_name, 
+                           context_count=len(contexts))
+            
+            return contexts
+            
+        except Exception as e:
+            self.logger.error("extract_schema_contexts_failed", database=database_name, error=str(e))
+            return []
+    
+    # ADDED: Get schema summary method for context manager
+    async def get_schema_summary(self, database_name: str = "default") -> Dict[str, Any]:
+        """Get schema summary for context manager statistics."""
+        try:
+            schema_data = await self.extract_database_schema(database_name)
+            tables = schema_data.get("tables", [])
+            
+            return {
+                "database_name": database_name,
+                "table_count": len(tables),
+                "total_columns": sum(len(t.get("columns", [])) for t in tables),
+                "tables_with_relationships": len([t for t in tables if t.get("foreign_keys")]),
+                "extraction_timestamp": schema_data.get("extraction_timestamp")
+            }
+            
+        except Exception as e:
+            self.logger.error("get_schema_summary_failed", database=database_name, error=str(e))
+            return {"database_name": database_name, "table_count": 0, "total_columns": 0}
     
     def _generate_table_description(self, table_name: str) -> str:
         """Generate intelligent description for table based on name."""
