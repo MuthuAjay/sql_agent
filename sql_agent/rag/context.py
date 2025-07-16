@@ -104,18 +104,33 @@ class ContextManager:
                 self.logger.warning("no_schema_contexts_extracted")
                 return
             
-            # If vector store is available, add contexts to it
+            # If vector store is available, use the proper ingestion method
             if self._vector_store_available and self.vector_store:
                 try:
-                    context_ids = await self.vector_store.add_schema_contexts(contexts)
-                    self.logger.info("contexts_added_to_vector_store", context_count=len(context_ids))
+                    # Get full schema data instead of individual contexts
+                    schema_data = await schema_processor.get_database_schema("default")
+                    
+                    if not schema_data or not schema_data.get("tables"):
+                        self.logger.warning("no_schema_data_extracted")
+                        return
+                    
+                    # Use existing vector store method
+                    ingest_stats = await self.vector_store.ingest_database_schema(schema_data)
+                    
+                    self.logger.info("schema_data_ingested_to_vector_store", 
+                                total_contexts=ingest_stats.get("total_contexts", 0),
+                                table_contexts=ingest_stats.get("table_contexts", 0),
+                                column_contexts=ingest_stats.get("column_contexts", 0))
+                    
                 except Exception as e:
-                    self.logger.warning("add_contexts_to_vector_store_failed", error=str(e))
-            
-            self._last_schema_update = datetime.utcnow()
-            
-            self.logger.info("schema_contexts_initialized", 
-                           context_count=len(contexts))
+                    self.logger.warning("ingest_schema_data_failed", error=str(e))
+            else:
+                # Fallback: Just extract contexts for basic functionality
+                try:
+                    contexts = await schema_processor.extract_schema_contexts()
+                    self.logger.info("basic_schema_contexts_extracted", context_count=len(contexts))
+                except Exception as e:
+                    self.logger.warning("extract_schema_contexts_failed", error=str(e))
             
         except Exception as e:
             self.logger.error("initialize_schema_contexts_failed", error=str(e))
@@ -402,40 +417,40 @@ class ContextManager:
                 unique_contexts.append(context)
         
         return unique_contexts
-    
-    async def refresh_schema_contexts(self) -> None:
-        """FIXED: Refresh schema contexts with graceful handling."""
-        self._ensure_initialized()
         
+    async def refresh_schema_contexts(self) -> None:
+        """FIXED: Refresh schema contexts using existing vector store method."""
         try:
             self.logger.info("refreshing_schema_contexts")
             
-            # Clear existing contexts if vector store is available
+            # If vector store is available, refresh using proper method
             if self._vector_store_available and self.vector_store:
                 try:
-                    await self.vector_store.clear_collection()
+                    # Clear existing contexts for default database
+                    await self.vector_store.rebuild_collection("default")
+                    
+                    # Get fresh schema data
+                    schema_data = await schema_processor.get_database_schema("default")
+                    
+                    if not schema_data or not schema_data.get("tables"):
+                        self.logger.warning("no_schema_data_extracted_during_refresh")
+                        return
+                    
+                    # Re-ingest fresh schema data
+                    ingest_stats = await self.vector_store.ingest_database_schema(schema_data)
+                    
+                    self.logger.info("schema_contexts_refreshed_in_vector_store", 
+                                total_contexts=ingest_stats.get("total_contexts", 0))
+                    
                 except Exception as e:
-                    self.logger.warning("clear_vector_store_failed", error=str(e))
-            
-            # Extract fresh schema contexts
-            contexts = await schema_processor.extract_schema_contexts()
-            
-            if not contexts:
-                self.logger.warning("no_schema_contexts_extracted_during_refresh")
-                return
-            
-            # Add new contexts to vector store if available
-            if self._vector_store_available and self.vector_store:
+                    self.logger.warning("refresh_schema_contexts_vector_failed", error=str(e))
+            else:
+                # Fallback: Just extract contexts
                 try:
-                    context_ids = await self.vector_store.add_schema_contexts(contexts)
-                    self.logger.info("contexts_refreshed_in_vector_store", context_count=len(context_ids))
+                    contexts = await schema_processor.extract_schema_contexts()
+                    self.logger.info("basic_schema_contexts_refreshed", context_count=len(contexts))
                 except Exception as e:
-                    self.logger.warning("add_refreshed_contexts_failed", error=str(e))
-            
-            self._last_schema_update = datetime.utcnow()
-            
-            self.logger.info("schema_contexts_refreshed", 
-                           context_count=len(contexts))
+                    self.logger.warning("refresh_basic_contexts_failed", error=str(e))
             
         except Exception as e:
             self.logger.error("refresh_schema_contexts_failed", error=str(e))
@@ -489,51 +504,72 @@ class ContextManager:
             return {"error": str(e)}
     
     async def update_table_context(self, table_name: str) -> None:
-        """FIXED: Update context for specific table with graceful handling."""
+        """FIXED: Update context for specific table using existing vector store methods."""
         self._ensure_initialized()
         
         try:
             self.logger.info("updating_table_context", table_name=table_name)
             
-            # Delete existing contexts if vector store is available
-            deleted_count = 0
+            # If vector store is available, refresh entire schema (simpler and more reliable)
             if self._vector_store_available and self.vector_store:
                 try:
-                    deleted_count = await self.vector_store.delete_by_table_name(table_name)
+                    # Get fresh schema data
+                    schema_data = await schema_processor.get_database_schema("default")
+                    
+                    if schema_data and schema_data.get("tables"):
+                        # Check if the specific table exists in the schema
+                        table_exists = any(
+                            table.get("name") == table_name 
+                            for table in schema_data.get("tables", [])
+                        )
+                        
+                        if table_exists:
+                            # Re-ingest entire schema (ensures consistency)
+                            ingest_stats = await self.vector_store.ingest_database_schema(schema_data)
+                            
+                            self.logger.info("table_context_updated_via_full_refresh", 
+                                        table_name=table_name,
+                                        total_contexts=ingest_stats.get("total_contexts", 0),
+                                        table_contexts=ingest_stats.get("table_contexts", 0),
+                                        column_contexts=ingest_stats.get("column_contexts", 0))
+                        else:
+                            self.logger.warning("table_not_found_in_schema", table_name=table_name)
+                            
+                    else:
+                        self.logger.warning("no_schema_data_for_table_update", table_name=table_name)
+                        
                 except Exception as e:
-                    self.logger.warning("delete_table_contexts_failed", error=str(e))
-            
-            # Get fresh schema info for this table
-            schema_info = await schema_processor.extract_schema_contexts()
-            
-            # Filter contexts for this table
-            table_contexts = [
-                context for context in schema_info 
-                if context.table_name == table_name
-            ]
-            
-            if table_contexts:
-                # Add new contexts if vector store is available
-                if self._vector_store_available and self.vector_store:
-                    try:
-                        context_ids = await self.vector_store.add_schema_contexts(table_contexts)
-                        self.logger.info("table_context_updated", 
-                                       table_name=table_name,
-                                       deleted_count=deleted_count,
-                                       new_contexts=len(context_ids))
-                    except Exception as e:
-                        self.logger.warning("add_table_contexts_failed", error=str(e))
-                else:
-                    self.logger.info("table_context_prepared", 
-                                   table_name=table_name,
-                                   new_contexts=len(table_contexts))
+                    self.logger.warning("update_table_context_vector_failed", 
+                                    table_name=table_name, error=str(e))
+                    
             else:
-                self.logger.warning("no_contexts_found_for_table", table_name=table_name)
+                # Fallback: Just extract and log contexts (no vector store available)
+                try:
+                    schema_info = await schema_processor.extract_schema_contexts("default")
+                    
+                    # Filter contexts for this table
+                    table_contexts = [
+                        context for context in schema_info 
+                        if hasattr(context, 'table_name') and context.table_name == table_name
+                    ]
+                    
+                    if table_contexts:
+                        self.logger.info("table_context_extracted_fallback", 
+                                    table_name=table_name,
+                                    context_count=len(table_contexts))
+                    else:
+                        self.logger.warning("no_contexts_found_for_table_fallback", table_name=table_name)
+                        
+                except Exception as e:
+                    self.logger.warning("extract_table_contexts_fallback_failed", 
+                                    table_name=table_name, error=str(e))
+            
+            self._last_schema_update = datetime.utcnow()
             
         except Exception as e:
             self.logger.error("update_table_context_failed", 
                             table_name=table_name, error=str(e))
-    
+        
     async def get_relevant_tables(self, query: str, limit: int = 5) -> List[str]:
         """FIXED: Get relevant table names with fallback."""
         self._ensure_initialized()

@@ -268,12 +268,12 @@ class VectorStore:
             "table_name": table_name,
             "database_name": database_name,
             "column_count": len(columns),
-            "business_concepts": business_concepts,
-            "semantic_tags": semantic_tags,
+            "business_concepts": table_data.get("business_concepts_str", ",".join(business_concepts) if business_concepts else ""),
+            "semantic_tags": table_data.get("semantic_tags_str", ",".join(semantic_tags) if semantic_tags else ""),
             "has_relationships": len(table_data.get("foreign_keys", [])) > 0,
             "data_quality_score": table_data.get("data_quality", {}).get("has_primary_key", False),
             "created_at": datetime.utcnow().isoformat(),
-            "search_keywords": self._extract_search_keywords(table_data)
+            "search_keywords": ",".join(self._extract_search_keywords(table_data))
         }
         
         return {
@@ -334,12 +334,12 @@ class VectorStore:
             "column_name": column_name,
             "database_name": database_name,
             "data_type": data_type,
-            "business_concept": business_concept,
+            "business_concept": business_concept or "",
             "is_nullable": column_detail.get("nullable", True),
             "is_primary_key": column_name in [pk.get("column", "") for pk in table_data.get("primary_keys", [])],
             "is_foreign_key": column_name in [fk.get("column", "") for fk in table_data.get("foreign_keys", [])],
             "created_at": datetime.utcnow().isoformat(),
-            "search_keywords": [column_name, data_type, business_concept] if business_concept else [column_name, data_type]
+            "search_keywords": ",".join([column_name, data_type, business_concept] if business_concept else [column_name, data_type])
         }
         
         return {
@@ -374,11 +374,11 @@ class VectorStore:
             "context_type": "relationship",
             "table_name": table_name,
             "database_name": database_name,
-            "referenced_tables": referenced_tables,
+            "referenced_tables": ",".join(referenced_tables),
             "relationship_count": len(foreign_keys),
             "relationship_strength": table_data.get("relationship_insights", {}).get("relationship_strength", "unknown"),
             "created_at": datetime.utcnow().isoformat(),
-            "search_keywords": [table_name] + referenced_tables
+            "search_keywords": ",".join([table_name] + referenced_tables)
         }
         
         return {

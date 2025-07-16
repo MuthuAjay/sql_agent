@@ -357,16 +357,29 @@ class SchemaProcessor:
                 enhanced_table = table.copy()
                 
                 # Enhance table description with context
-                enhanced_table["enhanced_description"] = await self._create_enhanced_table_description(table)
+                enhanced_table["enhanced_description"] = await self._create_enhanced_table_description(enhanced_table)
                 
                 # Add semantic tags
-                enhanced_table["semantic_tags"] = self._generate_semantic_tags(table)
+                enhanced_table["semantic_tags"] = self._generate_semantic_tags(enhanced_table)
                 
                 # Add relationship insights
-                enhanced_table["relationship_insights"] = self._analyze_table_relationships(table)
+                enhanced_table["relationship_insights"] = self._analyze_table_relationships(enhanced_table)
                 
                 # Add data quality insights
-                enhanced_table["data_quality"] = await self._assess_data_quality(table)
+                enhanced_table["data_quality"] = await self._assess_data_quality(enhanced_table)
+                
+                # ADDED: Create string versions for vector storage compatibility
+                business_concepts = enhanced_table.get("business_concepts", [])
+                if business_concepts:
+                    enhanced_table["business_concepts_str"] = ",".join(business_concepts)
+                
+                semantic_tags = enhanced_table.get("semantic_tags", [])
+                if semantic_tags:
+                    enhanced_table["semantic_tags_str"] = ",".join(semantic_tags)
+                
+                columns = enhanced_table.get("columns", [])
+                if columns:
+                    enhanced_table["columns_str"] = ",".join(columns)
                 
                 enhanced_tables.append(enhanced_table)
             
@@ -597,10 +610,6 @@ class SchemaProcessor:
         if sample_data.get("sample_count", 0) > 0:
             parts.append(f"Contains {sample_data['sample_count']} sample records")
         
-        # Add business concepts
-        business_concepts = table.get("business_concepts", [])
-        if business_concepts:
-            parts.append(f"Business domains: {', '.join(business_concepts)}")
         
         return ". ".join(parts)
     
