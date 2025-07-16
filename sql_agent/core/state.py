@@ -14,6 +14,7 @@ class QueryResult(BaseModel):
     execution_time: float = Field(default=0.0)
     sql_query: str = Field(default="")
     error: Optional[str] = Field(default=None)
+    is_validated: bool = Field(default=False)
 
 
 class SchemaContext(BaseModel):
