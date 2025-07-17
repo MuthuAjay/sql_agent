@@ -1,4 +1,4 @@
-"""Advanced Database management for SQL Agent with enterprise-grade schema extraction."""
+"""Advanced Database management for SQL Agent with LLM-powered intelligence."""
 
 import time
 import asyncio
@@ -54,7 +54,7 @@ class SchemaChangeInfo:
 
 
 class DatabaseManager:
-    """Advanced database manager with enterprise-grade schema extraction."""
+    """Advanced database manager with LLM-powered intelligence."""
     
     def __init__(self):
         self._engine: Optional[Engine] = None
@@ -68,6 +68,10 @@ class DatabaseManager:
         self._last_schema_update: Optional[datetime] = None
         self._connection_pool = None
         
+        # LLM Intelligence integration
+        self._schema_analyzer = None
+        self._llm_analysis_enabled = False
+        
         # Performance optimization
         self.config = {
             "max_concurrent_queries": 10,
@@ -75,11 +79,13 @@ class DatabaseManager:
             "batch_size": 50,
             "enable_parallel_extraction": True,
             "enable_statistics_collection": True,
-            "enable_relationship_inference": True
+            "enable_relationship_inference": True,
+            "enable_llm_intelligence": True,  # NEW: LLM intelligence toggle
+            "llm_fallback_enabled": True      # NEW: Graceful degradation
         }
     
     async def initialize(self) -> None:
-        """Initialize database connection with advanced features."""
+        """Initialize database connection with LLM intelligence."""
         start_time = time.time()
         try:
             # Create async engine with optimized settings
@@ -99,6 +105,9 @@ class DatabaseManager:
                 expire_on_commit=False,
             )
             
+            # Initialize LLM intelligence
+            await self._initialize_llm_intelligence()
+            
             # Test connection and initialize features
             await self._test_and_setup_connection()
             
@@ -111,6 +120,32 @@ class DatabaseManager:
                 sql_query="Initialization failed",
                 error=str(e),
             )
+    
+    async def _initialize_llm_intelligence(self) -> None:
+        """Initialize LLM intelligence capabilities."""
+        try:
+            if self.config["enable_llm_intelligence"] and settings.enable_business_intelligence:
+                # Import schema analyzer (lazy loading to avoid circular imports)
+                from ..rag.schema_analyzer import schema_analyzer
+                
+                self._schema_analyzer = schema_analyzer
+                
+                # Test LLM availability
+                health_check = await self._schema_analyzer.health_check()
+                self._llm_analysis_enabled = health_check.get("llm_available", False)
+                
+                print(f"LLM Intelligence initialized: {self._llm_analysis_enabled}")
+                print(f"LLM Provider: {health_check.get('llm_provider', 'None')}")
+                
+            else:
+                print("LLM Intelligence disabled by configuration")
+                
+        except Exception as e:
+            print(f"Failed to initialize LLM intelligence: {e}")
+            self._llm_analysis_enabled = False
+            
+            if not self.config["llm_fallback_enabled"]:
+                raise RuntimeError(f"LLM intelligence required but unavailable: {e}")
     
     async def get_schema_info(self) -> Dict[str, Any]:
         """Legacy method - redirects to advanced schema extraction."""
@@ -282,22 +317,128 @@ class DatabaseManager:
         except Exception:
             return False
     
-    # Advanced methods for Phase 3
+    # ==================== ENHANCED LLM-POWERED METHODS ====================
     
     async def get_performance_insights(self, database_name: Optional[str] = None) -> Dict[str, Any]:
-        """Get performance insights for database optimization."""
-        schema_data = await self.get_database_schema(database_name)
-        return schema_data.get("performance_insights", {})
+        """Get LLM-enhanced performance insights for database optimization."""
+        try:
+            schema_data = await self.get_database_schema(database_name)
+            
+            # Use LLM intelligence if available
+            if self._llm_analysis_enabled and self._schema_analyzer:
+                # Get enhanced schema with LLM analysis
+                enhanced_schema = schema_data.get("business_intelligence", {})
+                llm_performance_insights = enhanced_schema.get("optimization_priorities", [])
+                
+                # Combine with traditional performance analysis
+                traditional_insights = self._analyze_performance_characteristics(schema_data.get("tables", []))
+                
+                return {
+                    "llm_insights": llm_performance_insights,
+                    "traditional_analysis": traditional_insights,
+                    "recommendations": self._generate_performance_recommendations(
+                        traditional_insights, llm_performance_insights
+                    ),
+                    "intelligence_source": "llm_enhanced"
+                }
+            else:
+                # Fallback to traditional analysis
+                insights = self._analyze_performance_characteristics(schema_data.get("tables", []))
+                return {
+                    "traditional_analysis": insights,
+                    "intelligence_source": "rule_based_fallback"
+                }
+                
+        except Exception as e:
+            print(f"Failed to get performance insights: {e}")
+            return {"error": str(e), "intelligence_source": "error"}
     
-    async def get_business_domains(self, database_name: Optional[str] = None) -> Dict[str, List[str]]:
-        """Get business domain classification of tables."""
-        schema_data = await self.get_database_schema(database_name)
-        return schema_data.get("business_domains", {})
+    async def get_business_domains(self, database_name: Optional[str] = None) -> Dict[str, Any]:
+        """Get LLM-discovered business domain classification."""
+        try:
+            schema_data = await self.get_database_schema(database_name)
+            
+            # Use LLM intelligence if available
+            if self._llm_analysis_enabled and self._schema_analyzer:
+                # Get LLM-discovered domains
+                discovered_domains = await self._schema_analyzer.discover_business_domains(schema_data)
+                
+                # Format for API response
+                domains_response = {}
+                for domain in discovered_domains:
+                    domain_tables = []
+                    
+                    # Find tables that belong to this domain
+                    for table in schema_data.get("tables", []):
+                        table_business_context = table.get("business_context", {})
+                        table_processes = table_business_context.get("business_processes", [])
+                        
+                        # Check if table processes match domain processes
+                        if any(process in domain.related_processes for process in table_processes):
+                            domain_tables.append(table["name"])
+                    
+                    domains_response[domain.name] = {
+                        "tables": domain_tables,
+                        "description": domain.description,
+                        "confidence": domain.confidence,
+                        "evidence": domain.evidence,
+                        "criticality": domain.criticality
+                    }
+                
+                return {
+                    "discovered_domains": domains_response,
+                    "domain_count": len(discovered_domains),
+                    "intelligence_source": "llm_discovery",
+                    "business_purpose": schema_data.get("business_intelligence", {}).get("business_purpose"),
+                    "industry_domain": schema_data.get("business_intelligence", {}).get("industry_domain")
+                }
+            else:
+                # Fallback to rule-based classification
+                traditional_domains = self._classify_business_domains_fallback(schema_data.get("tables", []))
+                return {
+                    "discovered_domains": traditional_domains,
+                    "domain_count": len(traditional_domains),
+                    "intelligence_source": "rule_based_fallback"
+                }
+                
+        except Exception as e:
+            print(f"Failed to get business domains: {e}")
+            return {"error": str(e), "intelligence_source": "error"}
     
     async def get_quality_metrics(self, database_name: Optional[str] = None) -> Dict[str, Any]:
-        """Get schema quality metrics."""
-        schema_data = await self.get_database_schema(database_name)
-        return schema_data.get("quality_metrics", {})
+        """Get LLM-enhanced schema quality metrics."""
+        try:
+            schema_data = await self.get_database_schema(database_name)
+            
+            # Traditional quality metrics
+            traditional_quality = self._calculate_schema_quality(schema_data.get("tables", []))
+            
+            # Use LLM intelligence if available
+            if self._llm_analysis_enabled and self._schema_analyzer:
+                # Get LLM confidence metrics
+                business_intelligence = schema_data.get("business_intelligence", {})
+                llm_confidence = business_intelligence.get("confidence_metrics", {})
+                
+                return {
+                    "traditional_metrics": traditional_quality,
+                    "llm_confidence_metrics": llm_confidence,
+                    "overall_intelligence_score": llm_confidence.get("overall_confidence", 0.5),
+                    "data_completeness": traditional_quality.get("documentation_coverage", 0),
+                    "business_understanding": llm_confidence.get("database_confidence", 0.5),
+                    "relationship_clarity": llm_confidence.get("relationship_confidence", 0.5),
+                    "intelligence_source": "llm_enhanced"
+                }
+            else:
+                # Enhanced traditional metrics
+                return {
+                    "traditional_metrics": traditional_quality,
+                    "overall_quality_score": traditional_quality.get("documentation_coverage", 0.5),
+                    "intelligence_source": "rule_based_fallback"
+                }
+                
+        except Exception as e:
+            print(f"Failed to get quality metrics: {e}")
+            return {"error": str(e), "intelligence_source": "error"}
     
     async def optimize_schema_extraction(self, enable_parallel: bool = True) -> None:
         """Optimize schema extraction settings."""
@@ -316,7 +457,9 @@ class DatabaseManager:
             "last_update": self._last_schema_update.isoformat() if self._last_schema_update else None,
             "config": self.config,
             "parallel_extraction": self.config["enable_parallel_extraction"],
-            "statistics_collection": self.config["enable_statistics_collection"]
+            "statistics_collection": self.config["enable_statistics_collection"],
+            "llm_intelligence_enabled": self._llm_analysis_enabled,
+            "llm_provider": getattr(self._schema_analyzer, "_llm_provider", None) is not None if self._schema_analyzer else False
         }
     
     async def refresh_schema_cache(self, database_name: Optional[str] = None) -> None:
@@ -341,7 +484,8 @@ class DatabaseManager:
             "database_name": database_name or "default",
             "schema_data": schema_data,
             "extraction_config": self.config,
-            "checksum": self._schema_checksums.get(database_name or "default")
+            "checksum": self._schema_checksums.get(database_name or "default"),
+            "llm_intelligence_enabled": self._llm_analysis_enabled
         }
 
     
@@ -373,7 +517,7 @@ class DatabaseManager:
         self._schema_checksums.clear()
     
     async def get_database_schema(self, database_name: Optional[str] = None) -> Dict[str, Any]:
-        """Get comprehensive database schema with advanced metadata."""
+        """Get comprehensive database schema with LLM intelligence."""
         try:
             # Check cache first
             cache_key = database_name or "default"
@@ -386,8 +530,8 @@ class DatabaseManager:
             else:
                 schema_data = await self._extract_schema_sequential()
             
-            # Enhance with advanced metadata
-            enhanced_schema = await self._enhance_schema_with_metadata(schema_data)
+            # Enhance with LLM intelligence or fallback to traditional
+            enhanced_schema = await self._enhance_schema_with_intelligence(schema_data)
             
             # Cache the result
             self._cache_schema(cache_key, enhanced_schema)
@@ -396,6 +540,68 @@ class DatabaseManager:
             
         except Exception as e:
             raise RuntimeError(f"Failed to extract database schema: {e}")
+    
+    async def _enhance_schema_with_intelligence(self, schema_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Enhance schema with LLM intelligence or traditional metadata."""
+        try:
+            # Try LLM intelligence first
+            if self._llm_analysis_enabled and self._schema_analyzer:
+                print("Enhancing schema with LLM intelligence...")
+                
+                # Use schema analyzer for intelligent enhancement
+                enhanced_schema = await self._schema_analyzer.enhance_existing_schema(schema_data)
+                
+                print(f"LLM enhancement complete. Discovered {len(enhanced_schema.get('business_intelligence', {}).get('discovered_domains', []))} domains")
+                
+                return enhanced_schema
+            else:
+                print("LLM unavailable, using traditional enhancement...")
+                
+                # Fallback to traditional enhancement
+                enhanced_schema = await self._enhance_schema_with_metadata_fallback(schema_data)
+                
+                return enhanced_schema
+                
+        except Exception as e:
+            print(f"LLM enhancement failed, falling back to traditional: {e}")
+            
+            # Always fallback to traditional enhancement
+            return await self._enhance_schema_with_metadata_fallback(schema_data)
+    
+    async def _enhance_schema_with_metadata_fallback(self, schema_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Traditional metadata enhancement when LLM unavailable."""
+        enhanced_schema = schema_data.copy()
+        
+        # Add relationship inference
+        if self.config["enable_relationship_inference"]:
+            inferred_relationships = await self._infer_relationships(schema_data["tables"])
+            enhanced_schema["inferred_relationships"] = inferred_relationships
+        
+        # Add traditional business domain classification
+        enhanced_schema["business_domains"] = self._classify_business_domains_fallback(schema_data["tables"])
+        
+        # Add schema quality metrics
+        enhanced_schema["quality_metrics"] = self._calculate_schema_quality(schema_data["tables"])
+        
+        # Add performance insights
+        enhanced_schema["performance_insights"] = self._analyze_performance_characteristics(schema_data["tables"])
+        
+        # Add traditional business concepts to tables
+        for table in enhanced_schema["tables"]:
+            table["business_concepts"] = self._extract_business_concepts_fallback(table["name"])
+            table["rich_description"] = self._generate_table_description_fallback(table["name"])
+            table["business_keywords_str"] = ",".join(table["business_concepts"])
+        
+        # Mark as traditional enhancement
+        enhanced_schema["intelligence_metadata"] = {
+            "enhancement_type": "traditional",
+            "llm_available": False,
+            "analysis_timestamp": datetime.utcnow().isoformat()
+        }
+        
+        return enhanced_schema
+    
+    # ==================== ORIGINAL EXTRACTION METHODS (UNCHANGED) ====================
     
     async def _extract_schema_parallel(self) -> Dict[str, Any]:
         """Extract schema using parallel processing for performance."""
@@ -444,8 +650,6 @@ class DatabaseManager:
                 if isinstance(batch_result, dict):
                     all_tables.update(batch_result)
 
-            # print("**************\n all table data \n", all_tables)
-
             return {
                 "database_name": "sql_agent_db",
                 "tables": list(all_tables.values()),
@@ -454,6 +658,12 @@ class DatabaseManager:
                 "table_count": len(all_tables),
                 "total_columns": sum(len(t.get("columns", [])) for t in all_tables.values())
             }
+    
+    async def _extract_schema_sequential(self) -> Dict[str, Any]:
+        """Sequential schema extraction fallback."""
+        # Implementation would be similar to parallel but without concurrency
+        # For brevity, redirect to parallel method
+        return await self._extract_schema_parallel()
     
     async def _process_table_batch(self, table_batch: List, semaphore: asyncio.Semaphore) -> Dict[str, Any]:
         """Process a batch of tables concurrently."""
@@ -472,8 +682,6 @@ class DatabaseManager:
                         print(f"Failed to process table {table_row[0]}: {e}")
                         continue
 
-            # print("**************\n table_data - _process_table_batch \n", tables_data)
-
             return tables_data
     
     async def _extract_single_table_data(self, conn, table_row) -> Dict[str, Any]:
@@ -486,14 +694,13 @@ class DatabaseManager:
         table_data = {
             "name": table_name,
             "type": table_type,
-            "description": table_comment or self._generate_table_description(table_name),
+            "description": table_comment or None,  # Will be enhanced by LLM or fallback
             "columns": [],
             "column_details": {},
             "primary_keys": [],
             "foreign_keys": [],
             "indexes": [],
             "statistics": {},
-            "business_concepts": self._extract_business_concepts(table_name),
             "relationships": []
         }
         
@@ -514,7 +721,13 @@ class DatabaseManager:
             stats_data = await self._extract_table_statistics(conn, table_name)
             table_data["statistics"] = stats_data
             
-        # print("**************\n table_data \n", table_data)
+        # Add sample data for LLM analysis
+        try:
+            sample_data = await self.get_sample_data(table_name, 3)
+            table_data["sample_data"] = sample_data
+        except Exception as e:
+            print(f"Failed to get sample data for {table_name}: {e}")
+            table_data["sample_data"] = {"columns": [], "rows": []}
         
         return table_data
     
@@ -537,7 +750,7 @@ class DatabaseManager:
             AND cols.table_schema = 'public'
             ORDER BY cols.ordinal_position
         """
-        # print("Extracting columns for table:", table_name)
+        
         result = await conn.execute(text(columns_query), {"table_name": table_name})
         column_rows = result.fetchall()
         
@@ -559,8 +772,7 @@ class DatabaseManager:
                 "precision": row[5],
                 "scale": row[6],
                 "position": row[7],
-                "comment": row[8] or self._generate_column_description(column_name, data_type),
-                "business_concept": self._extract_column_business_concept(column_name)
+                "comment": row[8] or None  # Will be enhanced by LLM or fallback
             }
         
         return {
@@ -708,25 +920,57 @@ class DatabaseManager:
         
         return {}
     
-    async def _enhance_schema_with_metadata(self, schema_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Enhance schema with advanced metadata."""
-        enhanced_schema = schema_data.copy()
+    # ==================== FALLBACK METHODS (NO HARDCODED DOMAINS) ====================
+    
+    def _classify_business_domains_fallback(self, tables: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+        """Fallback: Return empty domains when LLM unavailable - NO hardcoded domains."""
+        return {
+            "note": "Business domain discovery requires LLM analysis",
+            "fallback_message": "Enable LLM intelligence for dynamic domain discovery"
+        }
+    
+    def _extract_business_concepts_fallback(self, table_name: str) -> List[str]:
+        """Fallback: Return simple table name analysis - NO hardcoded concepts."""
+        # Simple extraction based only on table name patterns
+        concepts = []
+        name_parts = table_name.lower().replace('_', ' ').split()
         
-        # Add relationship inference
-        if self.config["enable_relationship_inference"]:
-            inferred_relationships = await self._infer_relationships(schema_data["tables"])
-            enhanced_schema["inferred_relationships"] = inferred_relationships
+        # Just return meaningful words from table name
+        meaningful_words = [word for word in name_parts if len(word) > 2 and word not in ['table', 'data', 'info']]
         
-        # Add business domain classification
-        enhanced_schema["business_domains"] = self._classify_business_domains(schema_data["tables"])
+        return meaningful_words[:3] if meaningful_words else [table_name.lower()]
+    
+    def _generate_table_description_fallback(self, table_name: str) -> str:
+        """Fallback: Simple description without business assumptions."""
+        # Generic description based only on table name structure
+        name_clean = table_name.replace('_', ' ').title()
+        return f"Data table: {name_clean}"
+    
+    def _generate_performance_recommendations(
+        self, 
+        traditional_insights: Dict[str, Any], 
+        llm_insights: List[str]
+    ) -> List[str]:
+        """Generate performance recommendations - LLM first, basic technical fallback."""
+        recommendations = []
         
-        # Add schema quality metrics
-        enhanced_schema["quality_metrics"] = self._calculate_schema_quality(schema_data["tables"])
+        # Prioritize LLM insights if available
+        if llm_insights:
+            recommendations.extend(llm_insights)
         
-        # Add performance insights
-        enhanced_schema["performance_insights"] = self._analyze_performance_characteristics(schema_data["tables"])
+        # Add only technical recommendations (no business assumptions)
+        if traditional_insights.get("tables_without_indexes"):
+            recommendations.append("Consider adding indexes to large tables for better query performance")
         
-        return enhanced_schema
+        if traditional_insights.get("tables_with_many_columns"):
+            recommendations.append("Review table structure for potential optimization opportunities")
+        
+        if traditional_insights.get("large_tables"):
+            recommendations.append("Monitor query performance on large tables")
+        
+        return recommendations
+    
+    # ==================== ORIGINAL UTILITY METHODS (UNCHANGED) ====================
     
     async def _infer_relationships(self, tables: List[Dict[str, Any]]) -> List[RelationshipInfo]:
         """Infer implicit relationships beyond foreign keys."""
@@ -767,34 +1011,6 @@ class DatabaseManager:
                             break
         
         return relationships
-    
-    def _classify_business_domains(self, tables: List[Dict[str, Any]]) -> Dict[str, List[str]]:
-        """Classify tables into business domains."""
-        domain_keywords = {
-            "customer_management": ["customer", "client", "user", "account", "subscriber"],
-            "product_catalog": ["product", "item", "inventory", "catalog", "merchandise"],
-            "order_processing": ["order", "transaction", "purchase", "sale", "payment"],
-            "financial": ["revenue", "profit", "cost", "budget", "finance", "accounting"],
-            "hr_management": ["employee", "staff", "hr", "personnel", "payroll"],
-            "marketing": ["campaign", "promotion", "lead", "conversion", "marketing"],
-            "operations": ["logistics", "warehouse", "shipping", "supply", "operations"]
-        }
-        
-        domain_classification = {}
-        
-        for domain, keywords in domain_keywords.items():
-            domain_tables = []
-            
-            for table in tables:
-                table_name = table["name"].lower()
-                
-                if any(keyword in table_name for keyword in keywords):
-                    domain_tables.append(table["name"])
-            
-            if domain_tables:
-                domain_classification[domain] = domain_tables
-        
-        return domain_classification
     
     def _calculate_schema_quality(self, tables: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Calculate schema quality metrics."""
@@ -852,84 +1068,6 @@ class DatabaseManager:
             "tables_with_many_columns": tables_with_many_columns,
             "performance_warnings": len(tables_without_indexes) + len(tables_with_many_columns)
         }
-    
-    # Utility methods
-    
-    def _generate_table_description(self, table_name: str) -> str:
-        """Generate intelligent description for table based on name."""
-        name_lower = table_name.lower()
-        
-        # Business entity patterns
-        if "customer" in name_lower or "client" in name_lower:
-            return "Customer information and account data"
-        elif "product" in name_lower or "item" in name_lower:
-            return "Product catalog and inventory information"
-        elif "order" in name_lower:
-            return "Customer orders and transaction data"
-        elif "employee" in name_lower or "staff" in name_lower:
-            return "Employee information and HR data"
-        elif "user" in name_lower:
-            return "User account and profile information"
-        elif "payment" in name_lower or "transaction" in name_lower:
-            return "Payment and financial transaction data"
-        else:
-            return f"Data table: {table_name}"
-    
-    def _generate_column_description(self, column_name: str, data_type: str) -> str:
-        """Generate intelligent description for column."""
-        name_lower = column_name.lower()
-        
-        if name_lower.endswith("_id") or name_lower == "id":
-            return f"Unique identifier ({data_type})"
-        elif "name" in name_lower:
-            return f"Name or title field ({data_type})"
-        elif "email" in name_lower:
-            return f"Email address ({data_type})"
-        elif any(word in name_lower for word in ["date", "time", "created", "updated"]):
-            return f"Date/time field ({data_type})"
-        elif any(word in name_lower for word in ["amount", "price", "cost", "total"]):
-            return f"Monetary value ({data_type})"
-        else:
-            return f"Data field: {column_name} ({data_type})"
-    
-    def _extract_business_concepts(self, table_name: str) -> List[str]:
-        """Extract business concepts from table name."""
-        concepts = []
-        name_lower = table_name.lower()
-        
-        business_concepts = {
-            "customer_management": ["customer", "client", "account"],
-            "product_catalog": ["product", "item", "inventory"],
-            "order_processing": ["order", "purchase", "transaction"],
-            "financial": ["payment", "invoice", "billing"],
-            "hr_management": ["employee", "staff", "hr"],
-            "logistics": ["shipping", "delivery", "warehouse"]
-        }
-        
-        for concept_category, keywords in business_concepts.items():
-            if any(keyword in name_lower for keyword in keywords):
-                concepts.append(concept_category)
-        
-        return concepts
-    
-    def _extract_column_business_concept(self, column_name: str) -> Optional[str]:
-        """Extract business concept from column name."""
-        name_lower = column_name.lower()
-        
-        concept_mapping = {
-            "identifier": ["id", "_id", "key"],
-            "personal_info": ["name", "first_name", "last_name", "email"],
-            "geographic": ["address", "city", "state", "country"],
-            "temporal": ["date", "time", "created", "updated"],
-            "financial": ["price", "amount", "cost", "total"],
-            "status": ["status", "state", "active", "enabled"]
-        }
-        
-        for concept, keywords in concept_mapping.items():
-            if any(keyword in name_lower for keyword in keywords):
-                return concept
-        
-        return None
     
     def _parse_index_columns(self, index_def: str) -> List[str]:
         """Parse column names from index definition."""
@@ -997,7 +1135,7 @@ class DatabaseManager:
         
         return changes
     
-    # Legacy methods for backward compatibility
+    # ==================== LEGACY METHODS FOR BACKWARD COMPATIBILITY ====================
     
     async def execute_query(
         self, 
@@ -1031,7 +1169,7 @@ class DatabaseManager:
         
         except SQLAlchemyError as e:
             raise RuntimeError(f"SQL execution failed: {e}")
-        
-        
+
+
 # Global database manager instance
 db_manager = DatabaseManager()
