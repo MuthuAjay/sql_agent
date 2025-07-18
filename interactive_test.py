@@ -251,8 +251,13 @@ class SQLAgentTester:
                 response = await client.get(f"{self.base_url}/api/v1/schema/tables", timeout=20)
                 response.raise_for_status()
                 data = response.json()
+                
+            print(data)
             
-            tables = data.get("tables", [])
+            if isinstance(data, list):
+                tables = data
+            else:
+                tables = data.get("tables", [])
             
             if not tables:
                 self.console.print("[yellow]No tables found in database[/yellow]")
@@ -272,7 +277,7 @@ class SQLAgentTester:
                 size_bytes = tbl.get("size_bytes")
                 size_display = self.format_bytes(size_bytes) if size_bytes else "unknown"
                 
-                description = tbl.get("description", "")
+                description = tbl.get("description") or "Table without description"
                 if len(description) > 50:
                     description = description[:47] + "..."
                 
