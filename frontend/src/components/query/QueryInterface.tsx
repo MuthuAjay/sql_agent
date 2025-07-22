@@ -1,178 +1,263 @@
-import React, { useState } from 'react';
-import { NaturalLanguageInput } from './NaturalLanguageInput';
-import { SqlEditor } from './SqlEditor';
-import { QueryHistory } from './QueryHistory';
-import { ResultsTable } from './ResultsTable';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../common/Tabs';
-import { Play, Save, History, Code, MessageSquare } from 'lucide-react';
-import { useQueryStore, useUIStore } from '../../stores';
-import { queryAPI, sqlAPI } from '../../services/api';
-import { LoadingSpinner } from '../common/LoadingSpinner';
+import React, { useState, useRef, useEffect } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { Send, Loader2, Lightbulb, AlertCircle, CheckCircle } from 'lucide-react';
+import { api, APIError } from '@/lib/api';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Card, CardContent } from '@/components/ui/Card';
+import { QueryResponse } from '@/types/api';
+import { DataTable } from '@/components/data/DataTable';
+import { ChartComponent } from '@/components/visualization/ChartComponent';
+import { InsightsPanel } from '@/components/analysis/InsightsPanel';
+import { debounce } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
-export const QueryInterface: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'natural' | 'sql'>('natural');
-  const { 
-    currentQuery, 
-    currentSql, 
-    queryResult, 
-    isExecuting,
-    setCurrentQuery,
-    setCurrentSql,
-    setQueryResult,
-    setIsExecuting,
-    setError,
-    addToHistory
-  } = useQueryStore();
-  const { activeDatabase } = useUIStore();
+interface QueryMessage {
+  id: string;
+  type: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  response?: QueryResponse;
+  error?: string;
+}
 
-  const handleExecuteNaturalLanguage = async () => {
-    if (!currentQuery.trim() || !activeDatabase) {
-      toast.error('Please enter a query and select a database');
-      return;
+export function QueryInterface() {
+  const [query, setQuery] = useState('');
+  const [messages, setMessages] = useState<QueryMessage[]>([
+    {
+      id: 'welcome',
+      type: 'assistant',
+      content: 'Hello! I\'m your AI SQL assistant. Ask me anything about your data in natural language.',
+      timestamp: new Date(),
+    },
+  ]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const queryMutation = useMutation({
+    mutationFn: api.query.process,
+    onSuccess: (response) => {
+      const assistantMessage: QueryMessage = {
+        id: `assistant-${Date.now()}`,
+        type: 'assistant',
+        content: `I've executed your query successfully. Here are the results:`,
+        timestamp: new Date(),
+        response,
+      };
+      setMessages(prev => [...prev, assistantMessage]);
+      toast.success('Query executed successfully!');
+    },
+    onError: (error: APIError) => {
+      const errorMessage: QueryMessage = {
+        id: `error-${Date.now()}`,
+        type: 'assistant',
+        content: 'Sorry, I encountered an error while processing your query.',
+        timestamp: new Date(),
+        error: error.message,
+      };
+      setMessages(prev => [...prev, errorMessage]);
+      toast.error(error.message);
+    },
+  });
+
+  const getSuggestions = useMutation({
+    mutationFn: api.query.getSuggestions,
+    onSuccess: (suggestions) => {
+      setSuggestions(suggestions);
+    },
+  });
+
+  const debouncedGetSuggestions = debounce((query: string) => {
+    if (query.length > 3) {
+      getSuggestions.mutate(query);
+    } else {
+      setSuggestions([]);
     }
+  }, 300);
 
-    setIsExecuting(true);
-    setError(null);
+  useEffect(() => {
+    debouncedGetSuggestions(query);
+  }, [query]);
 
-    try {
-      const result = await queryAPI.naturalLanguage(currentQuery, activeDatabase);
-      setQueryResult(result);
-      setCurrentSql(result.sqlQuery);
-      
-      // Add to history
-      addToHistory({
-        id: result.requestId,
-        query: currentQuery,
-        sqlQuery: result.sqlQuery,
-        timestamp: new Date().toISOString(),
-        databaseId: activeDatabase,
-        executionTime: result.executionTime,
-        rowCount: result.rowCount,
-      });
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
-      toast.success(`Query executed successfully! ${result.rowCount} rows returned`);
-    } catch (error: any) {
-      setError(error.response?.data?.error?.detail || 'Failed to execute query');
-      toast.error('Failed to execute query');
-    } finally {
-      setIsExecuting(false);
-    }
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!query.trim() || queryMutation.isPending) return;
+
+    const userMessage: QueryMessage = {
+      id: `user-${Date.now()}`,
+      type: 'user',
+      content: query,
+      timestamp: new Date(),
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    queryMutation.mutate(query, {
+      includeAnalysis: true,
+      includeVisualization: true,
+    });
+    setQuery('');
+    setSuggestions([]);
   };
 
-  const handleExecuteSQL = async () => {
-    if (!currentSql.trim() || !activeDatabase) {
-      toast.error('Please enter SQL and select a database');
-      return;
-    }
+  const handleSuggestionClick = (suggestion: string) => {
+    setQuery(suggestion);
+    setSuggestions([]);
+  };
 
-    setIsExecuting(true);
-    setError(null);
-
-    try {
-      const result = await sqlAPI.execute(currentSql, activeDatabase);
-      setQueryResult(result);
-      
-      // Add to history
-      addToHistory({
-        id: result.requestId,
-        query: currentSql,
-        sqlQuery: result.sqlQuery,
-        timestamp: new Date().toISOString(),
-        databaseId: activeDatabase,
-        executionTime: result.executionTime,
-        rowCount: result.rowCount,
-      });
-
-      toast.success(`SQL executed successfully! ${result.rowCount} rows returned`);
-    } catch (error: any) {
-      setError(error.response?.data?.error?.detail || 'Failed to execute SQL');
-      toast.error('Failed to execute SQL');
-    } finally {
-      setIsExecuting(false);
-    }
+  const formatTimestamp = (date: Date) => {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Query Interface</h1>
-          <p className="text-gray-600">Ask questions in natural language or write SQL directly</p>
-        </div>
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={activeTab === 'natural' ? handleExecuteNaturalLanguage : handleExecuteSQL}
-            disabled={isExecuting}
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {isExecuting ? (
-              <LoadingSpinner size="sm" className="mr-2" />
-            ) : (
-              <Play className="w-4 h-4 mr-2" />
-            )}
-            {isExecuting ? 'Executing...' : 'Execute'}
-          </button>
-          
-          <button className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
-            <Save className="w-4 h-4 mr-2" />
-            Save
-          </button>
-        </div>
+    <div className="h-full flex flex-col">
+      {/* Messages */}
+      <div className="flex-1 overflow-auto p-6 space-y-4">
+        {messages.map((message) => (
+          <div key={message.id} className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[80%] ${message.type === 'user' ? 'order-2' : 'order-1'}`}>
+              <Card className={message.type === 'user' ? 'bg-blue-50 dark:bg-blue-900/20' : ''}>
+                <CardContent className="p-4">
+                  <div className="flex items-start space-x-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                      message.type === 'user' 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                    }`}>
+                      {message.type === 'user' ? 'U' : 'AI'}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm text-gray-900 dark:text-gray-100 mb-1">{message.content}</p>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {formatTimestamp(message.timestamp)}
+                      </span>
+                      
+                      {message.error && (
+                        <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded-md border border-red-200 dark:border-red-800">
+                          <div className="flex items-start space-x-2">
+                            <AlertCircle size={16} className="text-red-500 mt-0.5" />
+                            <span className="text-sm text-red-700 dark:text-red-300">{message.error}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {message.response && (
+                        <div className="mt-4 space-y-4">
+                          {/* SQL and Execution Info */}
+                          {message.response.sql_result && (
+                            <div>
+                              <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-md">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Generated SQL:</span>
+                                  <div className="flex items-center space-x-2 text-xs text-gray-500 dark:text-gray-400">
+                                    <CheckCircle size={14} className="text-green-500" />
+                                    <span>{message.response.sql_result.execution_time}ms</span>
+                                  </div>
+                                </div>
+                                <code className="text-sm font-mono bg-white dark:bg-gray-900 p-2 rounded border block">
+                                  {message.response.sql_result.sql}
+                                </code>
+                              </div>
+
+                              {/* Data Table */}
+                              {message.response.sql_result.data.length > 0 && (
+                                <DataTable
+                                  data={message.response.sql_result.data}
+                                  columns={message.response.sql_result.columns}
+                                  totalRows={message.response.sql_result.total_rows}
+                                />
+                              )}
+                            </div>
+                          )}
+
+                          {/* Visualization */}
+                          {message.response.visualization_result && (
+                            <ChartComponent visualization={message.response.visualization_result} />
+                          )}
+
+                          {/* Analysis Insights */}
+                          {message.response.analysis_result && (
+                            <InsightsPanel analysis={message.response.analysis_result} />
+                          )}
+
+                          {/* Suggestions */}
+                          {message.response.suggestions.length > 0 && (
+                            <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
+                              <div className="flex items-center space-x-2 mb-2">
+                                <Lightbulb size={16} className="text-blue-500" />
+                                <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Suggestions:</span>
+                              </div>
+                              <div className="space-y-1">
+                                {message.response.suggestions.map((suggestion, index) => (
+                                  <button
+                                    key={index}
+                                    onClick={() => handleSuggestionClick(suggestion)}
+                                    className="block w-full text-left text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                                  >
+                                    • {suggestion}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Query Input */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'natural' | 'sql')}>
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="natural" className="flex items-center">
-              <MessageSquare className="w-4 h-4 mr-2" />
-              Natural Language
-            </TabsTrigger>
-            <TabsTrigger value="sql" className="flex items-center">
-              <Code className="w-4 h-4 mr-2" />
-              SQL Editor
-            </TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="natural" className="mt-0">
-            <NaturalLanguageInput
-              value={currentQuery}
-              onChange={setCurrentQuery}
-              onExecute={handleExecuteNaturalLanguage}
-              isExecuting={isExecuting}
-            />
-          </TabsContent>
-          
-          <TabsContent value="sql" className="mt-0">
-            <SqlEditor
-              value={currentSql}
-              onChange={setCurrentSql}
-              onExecute={handleExecuteSQL}
-              isExecuting={isExecuting}
-            />
-          </TabsContent>
-        </Tabs>
-      </div>
+      <div className="border-t border-gray-200 dark:border-gray-800 p-4">
+        <form onSubmit={handleSubmit} className="space-y-2">
+          {/* Suggestions */}
+          {suggestions.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg">
+              <div className="p-2 space-y-1">
+                {suggestions.slice(0, 5).map((suggestion, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={() => handleSuggestionClick(suggestion)}
+                    className="block w-full text-left px-2 py-1 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-      {/* Results */}
-      {queryResult && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          <ResultsTable result={queryResult} />
-        </div>
-      )}
-
-      {/* History Sidebar */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center">
-            <History className="w-5 h-5 text-gray-500 mr-2" />
-            <h3 className="text-lg font-semibold text-gray-900">Query History</h3>
+          <div className="flex space-x-2">
+            <div className="flex-1">
+              <Input
+                type="text"
+                placeholder="Ask me anything about your data..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                disabled={queryMutation.isPending}
+                className="w-full"
+              />
+            </div>
+            <Button
+              type="submit"
+              disabled={!query.trim() || queryMutation.isPending}
+              loading={queryMutation.isPending}
+              className="px-6"
+            >
+              {queryMutation.isPending ? <Loader2 size={16} /> : <Send size={16} />}
+            </Button>
           </div>
-        </div>
-        <QueryHistory />
+        </form>
       </div>
     </div>
   );
-};
+}

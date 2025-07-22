@@ -1,29 +1,27 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
-import { TopNavigation } from './TopNavigation';
-import { useUIStore } from '../../stores';
-import { cn } from '../../utils/cn';
+import { Header } from './Header';
+import { StatusBar } from './StatusBar';
 
-export const AppLayout: React.FC = () => {
-  const { sidebarOpen, theme } = useUIStore();
+export function AppLayout() {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
-    <div className={cn('min-h-screen bg-gray-50', theme === 'dark' && 'dark bg-gray-900')}>
-      <TopNavigation />
-      <div className="flex">
-        <Sidebar />
-        <main
-          className={cn(
-            'flex-1 transition-all duration-300 pt-16',
-            sidebarOpen ? 'ml-64' : 'ml-16'
-          )}
-        >
-          <div className="p-6">
+    <div className="h-screen bg-gray-50 dark:bg-gray-900 flex overflow-hidden">
+      <Sidebar collapsed={sidebarCollapsed} onToggle={setSidebarCollapsed} />
+      
+      <div className="flex-1 flex flex-col min-w-0">
+        <Header onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)} />
+        
+        <main className="flex-1 overflow-auto">
+          <div className="h-full">
             <Outlet />
           </div>
         </main>
+        
+        <StatusBar />
       </div>
     </div>
   );
-};
+}
