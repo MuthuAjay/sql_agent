@@ -1,0 +1,125 @@
+venvmuthuajay@fedora:~/Documents/GitHub/sql_agent$ tree -I "node_modules|__pycache__|venv|*.pyc" -P "*.py|*.tsx|*.ts|*.js|*.jsx"
+.
+├── chroma_db
+│   ├── b7b346e3-d2d2-4cb9-b10a-fce4064f9e23
+│   └── cfe6d64e-c57e-43f3-a7b8-ac124fa4a359
+├── docs
+├── examples
+│   ├── api_example.py
+│   ├── mcp_example.py
+│   ├── multi_agent_example.py
+│   ├── rag_example.py
+│   └── rag_multi_agent_example.py
+├── focused_test.py
+├── frontend
+│   ├── eslint.config.js
+│   ├── postcss.config.js
+│   ├── src
+│   │   ├── App.tsx
+│   │   ├── components
+│   │   │   ├── analysis
+│   │   │   │   └── InsightsPanel.tsx
+│   │   │   ├── data
+│   │   │   │   └── DataTable.tsx
+│   │   │   ├── ErrorBoundary.tsx
+│   │   │   ├── layout
+│   │   │   │   ├── AppLayout.tsx
+│   │   │   │   ├── Header.tsx
+│   │   │   │   ├── Sidebar.tsx
+│   │   │   │   └── StatusBar.tsx
+│   │   │   ├── query
+│   │   │   │   └── QueryInterface.tsx
+│   │   │   ├── ui
+│   │   │   │   ├── Button.tsx
+│   │   │   │   ├── Card.tsx
+│   │   │   │   ├── Input.tsx
+│   │   │   │   └── LoadingSpinner.tsx
+│   │   │   └── visualization
+│   │   │       └── ChartComponent.tsx
+│   │   ├── contexts
+│   │   │   └── ThemeContext.tsx
+│   │   ├── hooks
+│   │   │   └── useLocalStorage.ts
+│   │   ├── lib
+│   │   │   ├── api.ts
+│   │   │   └── utils.ts
+│   │   ├── main.tsx
+│   │   ├── pages
+│   │   │   ├── AnalyticsPage.tsx
+│   │   │   ├── HealthPage.tsx
+│   │   │   ├── HistoryPage.tsx
+│   │   │   ├── PerformancePage.tsx
+│   │   │   ├── QueryPage.tsx
+│   │   │   ├── SchemaPage.tsx
+│   │   │   ├── SettingsPage.tsx
+│   │   │   └── SQLEditorPage.tsx
+│   │   ├── types
+│   │   │   └── api.ts
+│   │   └── vite-env.d.ts
+│   ├── tailwind.config.js
+│   └── vite.config.ts
+├── interactive_test.py
+├── scripts
+│   └── schema.py
+├── setup_database.py
+├── setup.py
+├── sql_agent
+│   ├── agents
+│   │   ├── analysis.py
+│   │   ├── base.py
+│   │   ├── __init__.py
+│   │   ├── orchestrator.py
+│   │   ├── router.py
+│   │   ├── sql.py
+│   │   └── viz.py
+│   ├── api
+│   │   ├── dependencies.py
+│   │   ├── __init__.py
+│   │   ├── main.py
+│   │   ├── models.py
+│   │   └── routes
+│   │       ├── analysis.py
+│   │       ├── query.py
+│   │       ├── schema.py
+│   │       ├── sql.py
+│   │       └── viz.py
+│   ├── core
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   ├── __init__.py
+│   │   ├── llm.py
+│   │   ├── models.py
+│   │   └── state.py
+│   ├── __init__.py
+│   ├── mcp
+│   │   ├── client.py
+│   │   ├── __init__.py
+│   │   ├── server.py
+│   │   └── tools.py
+│   ├── rag
+│   │   ├── context.py
+│   │   ├── embeddings.py
+│   │   ├── __init__.py
+│   │   ├── schema_analyzer.py
+│   │   ├── schema.py
+│   │   └── vector_store.py
+│   ├── services
+│   │   └── ai_service.py
+│   └── utils
+│       ├── __init__.py
+│       ├── logging.py
+│       └── schema_utils.py
+├── test2.py
+├── test_api.py
+├── test_db_connection.py
+├── tests
+│   ├── __init__.py
+│   ├── integration
+│   ├── test_agents.py
+│   ├── test_config.py
+│   ├── test_mcp.py
+│   ├── test_rag.py
+│   └── unit
+└── test_tables.py
+
+33 directories, 89 files
