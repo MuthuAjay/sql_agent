@@ -7,6 +7,8 @@ intelligent schema analyzer without containing business logic.
 
 Focus: Data extraction, pattern recognition, and preparation utilities.
 NOT: Business intelligence, domain classification, or LLM interactions.
+
+ENHANCED: Added fingerprinting utilities for intelligent cache invalidation.
 """
 
 import re
@@ -15,6 +17,7 @@ from typing import Dict, List, Any, Optional, Tuple, Set, Union
 from collections import Counter, defaultdict
 from datetime import datetime
 import hashlib
+import json
 
 from ..utils.logging import get_logger
 
@@ -92,6 +95,242 @@ def calculate_sample_statistics(sample_data: Dict[str, Any]) -> Dict[str, Any]:
         stats["data_types"][column] = infer_column_data_type(column_values)
     
     return stats
+
+
+# ==================== FINGERPRINTING UTILITIES ====================
+
+def generate_table_structure_hash(table_data: Dict[str, Any]) -> str:
+    """
+    Generate stable hash for table structure.
+    
+    Focuses on structural elements that affect business analysis:
+    - Column names and types
+    - Primary/foreign key relationships
+    - Table constraints
+    
+    Excludes volatile metadata like vacuum times.
+    """
+    try:
+        structural_components = {
+            "table_name": table_data.get("name", ""),
+            "columns": _extract_stable_column_signature(table_data.get("columns", [])),
+            "primary_keys": _extract_key_signature(table_data.get("primary_keys", [])),
+            "foreign_keys": _extract_fk_signature(table_data.get("foreign_keys", [])),
+            "indexes": _extract_index_signature(table_data.get("indexes", []))
+        }
+        
+        # Create stable JSON representation
+        stable_json = json.dumps(structural_components, sort_keys=True)
+        return hashlib.sha256(stable_json.encode()).hexdigest()[:16]
+        
+    except Exception as e:
+        logger.error(f"Failed to generate table structure hash: {e}")
+        return "error"
+
+
+def generate_data_pattern_hash(sample_data: Dict[str, Any], depth: int = 5) -> str:
+    """
+    Generate hash for data patterns from sample data.
+    
+    Args:
+        sample_data: Sample data from table
+        depth: Number of sample rows to include
+        
+    Returns:
+        Stable hash representing data patterns
+    """
+    try:
+        rows = sample_data.get("rows", [])
+        columns = sample_data.get("columns", [])
+        
+        if not rows or not columns:
+            return "empty"
+        
+        # Limit to specified depth for stability
+        limited_rows = rows[:depth]
+        
+        # Extract stable patterns
+        patterns = {}
+        for i, column in enumerate(columns):
+            column_values = [
+                row[i] for row in limited_rows 
+                if len(row) > i and row[i] is not None
+            ]
+            
+            if column_values:
+                patterns[column] = {
+                    "cardinality_class": _classify_cardinality(len(set(column_values)), len(column_values)),
+                    "type_pattern": _infer_stable_type_pattern(column_values),
+                    "length_pattern": _classify_length_pattern(column_values)
+                }
+        
+        pattern_components = {
+            "sample_size": len(limited_rows),
+            "column_patterns": patterns
+        }
+        
+        stable_json = json.dumps(pattern_components, sort_keys=True)
+        return hashlib.sha256(stable_json.encode()).hexdigest()[:16]
+        
+    except Exception as e:
+        logger.error(f"Failed to generate data pattern hash: {e}")
+        return "error"
+
+
+def generate_combined_fingerprint(table_data: Dict[str, Any], 
+                                include_data_patterns: bool = True) -> str:
+    """
+    Generate combined fingerprint for table including structure and data patterns.
+    
+    Args:
+        table_data: Complete table data including sample data
+        include_data_patterns: Whether to include sample data patterns
+        
+    Returns:
+        Combined fingerprint string
+    """
+    try:
+        structure_hash = generate_table_structure_hash(table_data)
+        
+        if include_data_patterns:
+            sample_data = table_data.get("sample_data", {})
+            data_hash = generate_data_pattern_hash(sample_data)
+            combined = f"{structure_hash}:{data_hash}"
+        else:
+            combined = structure_hash
+        
+        return hashlib.sha256(combined.encode()).hexdigest()[:16]
+        
+    except Exception as e:
+        logger.error(f"Failed to generate combined fingerprint: {e}")
+        return "error"
+
+
+def _extract_stable_column_signature(columns: List[Any]) -> List[Dict[str, str]]:
+    """Extract stable column signature for fingerprinting."""
+    signatures = []
+    
+    for col in sorted(columns, key=lambda x: x.get("name", "") if isinstance(x, dict) else str(x)):
+        if isinstance(col, dict):
+            sig = {
+                "name": col.get("name", ""),
+                "type": _normalize_db_type(col.get("type", "")),
+                "nullable": str(col.get("nullable", True)),
+                "has_default": str(bool(col.get("default")))
+            }
+        else:
+            sig = {"name": str(col), "type": "unknown", "nullable": "true", "has_default": "false"}
+        
+        signatures.append(sig)
+    
+    return signatures
+
+
+def _extract_key_signature(keys: List[Dict[str, Any]]) -> List[str]:
+    """Extract stable primary key signature."""
+    return sorted([key.get("column", "") for key in keys])
+
+
+def _extract_fk_signature(foreign_keys: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """Extract stable foreign key signature."""
+    fk_sigs = []
+    
+    for fk in foreign_keys:
+        sig = {
+            "column": fk.get("column", ""),
+            "referenced_table": fk.get("referenced_table", ""),
+            "referenced_column": fk.get("referenced_column", "")
+        }
+        fk_sigs.append(sig)
+    
+    return sorted(fk_sigs, key=lambda x: x["column"])
+
+
+def _extract_index_signature(indexes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Extract stable index signature."""
+    index_sigs = []
+    
+    for idx in indexes:
+        sig = {
+            "columns": sorted(idx.get("columns", [])),
+            "unique": str(idx.get("unique", False)),
+            "type": idx.get("type", "btree")
+        }
+        index_sigs.append(sig)
+    
+    return sorted(index_sigs, key=lambda x: str(x["columns"]))
+
+
+def _normalize_db_type(type_str: str) -> str:
+    """Normalize database type to standard form for fingerprinting."""
+    type_lower = type_str.lower().strip()
+    
+    # Group similar types for stable fingerprints
+    if "varchar" in type_lower or "text" in type_lower or "char" in type_lower:
+        return "text"
+    elif "int" in type_lower or "serial" in type_lower:
+        return "integer" 
+    elif "float" in type_lower or "double" in type_lower or "decimal" in type_lower or "numeric" in type_lower:
+        return "numeric"
+    elif "bool" in type_lower:
+        return "boolean"
+    elif "date" in type_lower or "time" in type_lower:
+        return "temporal"
+    elif "json" in type_lower:
+        return "json"
+    else:
+        return "other"
+
+
+def _classify_cardinality(unique_count: int, total_count: int) -> str:
+    """Classify cardinality into stable ranges for fingerprinting."""
+    if total_count == 0:
+        return "empty"
+    
+    ratio = unique_count / total_count
+    if ratio >= 0.95:
+        return "unique"
+    elif ratio >= 0.5:
+        return "high"
+    elif ratio >= 0.1:
+        return "medium"
+    else:
+        return "low"
+
+
+def _infer_stable_type_pattern(values: List[Any]) -> str:
+    """Infer stable data type pattern for fingerprinting."""
+    if not values:
+        return "empty"
+    
+    # Sample limited values for stability
+    sample_values = [str(v) for v in values[:3]]
+    
+    if all(v.isdigit() for v in sample_values if v):
+        return "numeric_id"
+    elif all("@" in v for v in sample_values if v):
+        return "email"
+    elif all(len(v) > 50 for v in sample_values if v):
+        return "long_text"
+    elif all(len(v) < 10 for v in sample_values if v):
+        return "short_code"
+    else:
+        return "general_text"
+
+
+def _classify_length_pattern(values: List[Any]) -> str:
+    """Classify value length patterns for fingerprinting."""
+    if not values:
+        return "empty"
+    
+    lengths = [len(str(v)) for v in values[:5]]  # Limited sample
+    
+    if len(set(lengths)) == 1:
+        return "fixed_length"
+    elif max(lengths) - min(lengths) <= 2:
+        return "similar_length"
+    else:
+        return "variable_length"
 
 
 # ==================== PATTERN DETECTION UTILITIES ====================
