@@ -44,9 +44,32 @@ class Settings(BaseSettings):
     google_api_key: Optional[str] = Field(default=None, alias="GOOGLE_API_KEY")
     google_model: str = Field(default="gemini-1.5-pro", alias="GOOGLE_MODEL")  # Latest Gemini
     
-    # Ollama
+    # Ollama Configuration - NEW
     ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
-    ollama_model: str = Field(default="llama3.1", alias="OLLAMA_MODEL")  # Updated version
+    ollama_model: str = Field(default="mistral:7b", alias="OLLAMA_MODEL")
+    ollama_timeout: int = Field(default=120, alias="OLLAMA_TIMEOUT")
+    ollama_context_window: int = Field(default=4096, alias="OLLAMA_CONTEXT_WINDOW")
+    ollama_temperature: float = Field(default=0.1, alias="OLLAMA_TEMPERATURE")
+    ollama_num_gpu: int = Field(default=1, alias="OLLAMA_NUM_GPU")
+    ollama_num_thread: int = Field(default=8, alias="OLLAMA_NUM_THREAD")
+    
+    # Hardware Configuration - NEW
+    gpu_memory_gb: int = Field(default=16, alias="GPU_MEMORY_GB")
+    hardware_profile: Literal["desktop_24gb", "laptop_16gb", "auto"] = Field(default="auto", alias="HARDWARE_PROFILE")
+    max_concurrent_llm_requests: int = Field(default=2, alias="MAX_CONCURRENT_LLM_REQUESTS")
+    enable_hardware_optimization: bool = Field(default=True, alias="ENABLE_HARDWARE_OPTIMIZATION")
+    
+    # Schema Analysis Configuration - NEW
+    schema_analysis_mode: Literal["instant", "quick", "standard", "deep"] = Field(default="standard", alias="SCHEMA_ANALYSIS_MODE")
+    schema_batch_size: int = Field(default=10, alias="SCHEMA_BATCH_SIZE")
+    enable_parallel_analysis: bool = Field(default=True, alias="ENABLE_PARALLEL_ANALYSIS")
+    analysis_cache_ttl_hours: int = Field(default=24, alias="ANALYSIS_CACHE_TTL_HOURS")
+    fingerprint_cache_ttl_hours: int = Field(default=168, alias="FINGERPRINT_CACHE_TTL_HOURS")  # 1 week
+    
+    # Cache Configuration - NEW
+    cache_directory: str = Field(default="./cache", alias="CACHE_DIRECTORY")
+    max_cache_size_mb: int = Field(default=2048, alias="MAX_CACHE_SIZE_MB")  # 2GB
+    enable_cache_compression: bool = Field(default=True, alias="ENABLE_CACHE_COMPRESSION")
     
     # Database Configuration
     database_type: Literal["postgresql", "mysql", "sqlite", "duckdb"] = Field(
@@ -257,6 +280,62 @@ class Settings(BaseSettings):
     
     @computed_field
     @property
+    def effective_hardware_profile(self) -> str:
+        """Determine effective hardware profile."""
+        if self.hardware_profile != "auto":
+            return self.hardware_profile
+        
+        # Auto-detect based on GPU memory
+        if self.gpu_memory_gb >= 24:
+            return "desktop_24gb"
+        elif self.gpu_memory_gb >= 16:
+            return "laptop_16gb"
+        else:
+            return "generic"
+    
+    @computed_field
+    @property
+    def ollama_config(self) -> Dict[str, Any]:
+        """Get complete Ollama configuration."""
+        return {
+            "base_url": self.ollama_base_url,
+            "model": self.ollama_model,
+            "timeout": self.ollama_timeout,
+            "context_window": self.ollama_context_window,
+            "temperature": self.ollama_temperature,
+            "num_gpu": self.ollama_num_gpu,
+            "num_thread": self.ollama_num_thread,
+            "concurrent_requests": self.max_concurrent_llm_requests
+        }
+    
+    @computed_field
+    @property
+    def hardware_config(self) -> Dict[str, Any]:
+        """Get hardware optimization configuration."""
+        return {
+            "profile": self.effective_hardware_profile,
+            "gpu_memory_gb": self.gpu_memory_gb,
+            "max_concurrent_llm": self.max_concurrent_llm_requests,
+            "enable_optimization": self.enable_hardware_optimization,
+            "analysis_mode": self.schema_analysis_mode,
+            "batch_size": self.schema_batch_size,
+            "parallel_analysis": self.enable_parallel_analysis
+        }
+    
+    @computed_field
+    @property
+    def cache_config(self) -> Dict[str, Any]:
+        """Get comprehensive cache configuration."""
+        return {
+            "directory": self.cache_directory,
+            "max_size_mb": self.max_cache_size_mb,
+            "compression": self.enable_cache_compression,
+            "analysis_ttl_hours": self.analysis_cache_ttl_hours,
+            "fingerprint_ttl_hours": self.fingerprint_cache_ttl_hours
+        }
+    
+    @computed_field
+    @property
     def is_production(self) -> bool:
         """Check if running in production environment."""
         return self.ENVIRONMENT == "production"
@@ -315,225 +394,37 @@ class Settings(BaseSettings):
                 "model": self.google_model,
             })
         elif provider == "ollama":
-            base_config.update({
-                "base_url": self.ollama_base_url,
-                "model": self.ollama_model,
-            })
+            base_config.update(self.ollama_config)
         
         return base_config
     
-    @computed_field
-    @property
-    def agent_timeouts(self) -> Dict[str, int]:
-        """Get agent timeout configuration."""
-        return {
-            "router": self.router_timeout,
-            "sql": self.sql_timeout,
-            "analysis": self.analysis_timeout,
-            "visualization": self.visualization_timeout,
-        }
-    
-    @computed_field
-    @property
-    def security_config(self) -> Dict[str, Any]:
-        """Get security configuration."""
-        return {
-            "jwt_algorithm": self.jwt_algorithm,
-            "access_token_expire_minutes": self.access_token_expire_minutes,
-            "csrf_protection": self.enable_csrf_protection,
-            "session_config": {
-                "secure": self.session_cookie_secure,
-                "httponly": self.session_cookie_httponly,
-                "samesite": self.session_cookie_samesite,
-            },
-            "rate_limiting": {
-                "per_minute": self.rate_limit_per_minute,
-            }
-        }
-    
-    @field_validator("cors_origins", mode="before")
+    @field_validator("ollama_base_url")
     @classmethod
-    def parse_cors_origins(cls, v):
-        """Parse CORS origins from string or list."""
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
+    def validate_ollama_url(cls, v: str) -> str:
+        """Validate Ollama base URL format."""
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("Ollama base URL must start with http:// or https://")
         return v
     
-    @field_validator("allowed_file_types", mode="before")
+    @field_validator("gpu_memory_gb")
     @classmethod
-    def parse_file_types(cls, v):
-        """Parse allowed file types from string or list."""
-        if isinstance(v, str):
-            return [ext.strip() for ext in v.split(",")]
+    def validate_gpu_memory(cls, v: int) -> int:
+        """Validate GPU memory is reasonable."""
+        if v < 4:
+            raise ValueError("GPU memory should be at least 4GB for local LLM")
+        if v > 80:
+            raise ValueError("GPU memory value seems unrealistic (max 80GB)")
         return v
     
-    @field_validator("database_url")
+    @field_validator("max_concurrent_llm_requests")
     @classmethod
-    def validate_database_url(cls, v: str) -> str:
-        """Validate database URL format."""
-        if not v:
-            raise ValueError("Database URL is required")
+    def validate_concurrent_requests(cls, v: int) -> int:
+        """Validate concurrent LLM requests is reasonable."""
+        if v < 1:
+            raise ValueError("Must allow at least 1 concurrent LLM request")
+        if v > 10:
+            raise ValueError("Too many concurrent requests may overwhelm local LLM")
         return v
-    
-    @field_validator("SECRET_KEY")
-    @classmethod
-    def validate_secret_key(cls, v: str) -> str:
-        """Validate secret key strength."""
-        if len(v) < 32:
-            raise ValueError("Secret key must be at least 32 characters long")
-        return v
-    
-    @model_validator(mode="after")
-    def validate_llm_provider_keys(self):
-        """Validate that required API keys are present for selected LLM provider."""
-        provider = self.effective_llm_provider
-        
-        if provider == "openai" and not self.openai_api_key:
-            raise ValueError("OpenAI API key is required when using OpenAI provider")
-        elif provider == "anthropic" and not self.anthropic_api_key:
-            raise ValueError("Anthropic API key is required when using Anthropic provider")
-        elif provider == "google" and not self.google_api_key:
-            raise ValueError("Google API key is required when using Google provider")
-        
-        return self
-    
-    @model_validator(mode="after")
-    def validate_production_settings(self):
-        """Validate production-specific settings."""
-        if self.is_production:
-            if self.debug:
-                raise ValueError("Debug mode should be disabled in production")
-            if "*" in self.ALLOWED_HOSTS:
-                raise ValueError("Wildcard hosts not allowed in production")
-            if not self.enable_metrics:
-                raise ValueError("Metrics should be enabled in production")
-            if not self.session_cookie_secure:
-                raise ValueError("Secure cookies should be enabled in production")
-            if self.SECRET_KEY.startswith("dev-"):
-                raise ValueError("Production secret key cannot use development default")
-        
-        return self
-    
-    @model_validator(mode="after")
-    def validate_performance_settings(self):
-        """Validate performance-related settings."""
-        if self.max_concurrent_queries > 100:
-            raise ValueError("Max concurrent queries should not exceed 100")
-        
-        if self.query_memory_limit_mb > 8192:  # 8GB
-            raise ValueError("Query memory limit should not exceed 8GB")
-        
-        if self.embedding_batch_size > 1000:
-            raise ValueError("Embedding batch size should not exceed 1000")
-        
-        return self
-    
-    def get_redis_config(self) -> Dict[str, Any]:
-        """Get Redis configuration."""
-        return {
-            "url": self.redis_url,
-            "cache_ttl": self.redis_cache_ttl,
-            "session_ttl": self.redis_session_ttl,
-            "max_connections": self.redis_max_connections,
-        }
-    
-    def get_vector_db_config(self) -> Dict[str, Any]:
-        """Get vector database configuration."""
-        config = {
-            "type": self.vector_db_type,
-            "collection": self.vector_db_collection,
-            "embedding_model": self.embedding_model,
-            "embedding_dimension": self.embedding_dimension,
-            "batch_size": self.embedding_batch_size,
-            "cache_ttl": self.embedding_cache_ttl,
-        }
-        
-        if self.vector_db_type == "chromadb":
-            config["path"] = self.chroma_db_path
-        else:
-            config["url"] = self.vector_db_url
-        
-        return config
-    
-    def get_orchestrator_config(self) -> Dict[str, Any]:
-        """Get orchestrator configuration."""
-        return {
-            "workflow_mode": self.orchestrator_workflow_mode,
-            "execution_strategy": self.orchestrator_execution_strategy,
-            "agent_timeouts": self.agent_timeouts,
-            "retry_config": {
-                "attempts": self.agent_retry_attempts,
-                "delay": self.agent_retry_delay,
-                "backoff_multiplier": self.agent_backoff_multiplier,
-                "enable_failover": self.enable_agent_failover,
-            },
-            "circuit_breaker": {
-                "failure_threshold": self.circuit_breaker_failure_threshold,
-                "recovery_timeout": self.circuit_breaker_recovery_timeout,
-                "half_open_max_calls": self.circuit_breaker_half_open_max_calls,
-            },
-            "performance": {
-                "max_concurrent_queries": self.max_concurrent_queries,
-                "query_queue_size": self.query_queue_size,
-                "enable_parallelization": self.enable_query_parallelization,
-                "enable_streaming": self.enable_result_streaming,
-            }
-        }
-    
-    def get_rag_config(self) -> Dict[str, Any]:
-        """Get RAG configuration."""
-        return {
-            "enabled": self.rag_enabled,
-            "similarity_threshold": self.rag_similarity_threshold,
-            "max_contexts": self.rag_max_contexts,
-            "chunk_size": self.rag_chunk_size,
-            "chunk_overlap": self.rag_chunk_overlap,
-            "reranking_enabled": self.rag_reranking_enabled,
-            "context_window_tokens": self.rag_context_window_tokens,
-            "index_refresh_interval": self.rag_index_refresh_interval,
-            "batch_update_size": self.rag_batch_update_size,
-        }
-    
-    def get_business_intelligence_config(self) -> Dict[str, Any]:
-        """Get business intelligence configuration."""
-        return {
-            "enabled": self.enable_business_intelligence,
-            "domain_classification": self.business_domain_classification,
-            "schema_profiling": {
-                "enabled": self.enable_schema_profiling,
-                "interval": self.schema_profiling_interval,
-            },
-            "data_quality": {
-                "enabled": self.enable_data_quality_checks,
-                "check_interval": self.data_quality_check_interval,
-                "threshold": self.data_quality_threshold,
-                "anomaly_detection": self.enable_anomaly_detection,
-            }
-        }
-    
-    def get_monitoring_config(self) -> Dict[str, Any]:
-        """Get monitoring configuration."""
-        return {
-            "metrics": {
-                "enabled": self.enable_metrics,
-                "port": self.metrics_port,
-                "retention_days": self.performance_metrics_retention_days,
-            },
-            "performance": {
-                "enabled": self.enable_performance_monitoring,
-                "slow_query_logging": self.enable_slow_query_logging,
-                "slow_query_threshold_ms": self.slow_query_threshold_ms,
-            },
-            "tracing": {
-                "enabled": self.enable_distributed_tracing,
-                "sample_rate": self.tracing_sample_rate,
-            },
-            "alerting": {
-                "enabled": self.enable_alerting,
-                "webhook_url": self.alerting_webhook_url,
-            },
-            "health_check_interval": self.health_check_interval,
-        }
     
     def get_feature_flags(self) -> Dict[str, bool]:
         """Get all feature flags."""
@@ -556,179 +447,43 @@ class Settings(BaseSettings):
             "export_features": self.enable_export_features,
         }
     
-    def get_logging_config(self) -> Dict[str, Any]:
-        """Get logging configuration."""
-        return {
-            "level": self.log_level,
-            "format": self.log_format,
-            "file": self.log_file,
-            "enable_request_logging": self.enable_request_logging,
-            "retention_days": self.log_retention_days,
-        }
-    
-    def get_backup_config(self) -> Dict[str, Any]:
-        """Get backup and recovery configuration."""
-        return {
-            "enabled": self.enable_automatic_backups,
-            "interval_hours": self.backup_interval_hours,
-            "retention_days": self.backup_retention_days,
-            "storage_path": self.backup_storage_path,
-        }
-    
-    def get_scaling_config(self) -> Dict[str, Any]:
-        """Get scaling configuration."""
-        return {
-            "horizontal_scaling": self.enable_horizontal_scaling,
-            "node_id": self.cluster_node_id,
-            "discovery_method": self.cluster_discovery_method,
-            "load_balancer_algorithm": self.load_balancer_algorithm,
-        }
-    
-    def export_for_frontend(self) -> Dict[str, Any]:
-        """Export safe configuration for frontend."""
-        return {
-            "app_name": self.app_name,
-            "app_version": self.app_version,
-            "environment": self.ENVIRONMENT,
-            "api_prefix": self.api_prefix,
-            "features": self.get_feature_flags(),
-            "limits": {
-                "max_rows_returned": self.max_rows_returned,
-                "query_timeout_seconds": self.query_timeout_seconds,
-                "max_file_size_mb": self.max_file_size_mb,
-                "allowed_file_types": self.allowed_file_types,
-                "query_complexity_limit": self.query_complexity_limit,
-                "query_memory_limit_mb": self.query_memory_limit_mb,
-            },
-            "llm_provider": self.effective_llm_provider,
-            "business_intelligence": {
-                "enabled": self.enable_business_intelligence,
-                "domain_classification": self.business_domain_classification,
-                "data_quality_checks": self.enable_data_quality_checks,
-            },
-            "performance": {
-                "streaming_enabled": self.enable_result_streaming,
-                "compression_enabled": self.enable_compression,
-                "caching_enabled": self.enable_query_caching,
+    def get_hardware_optimized_settings(self) -> Dict[str, Any]:
+        """Get settings optimized for detected hardware profile."""
+        profile = self.effective_hardware_profile
+        
+        if profile == "desktop_24gb":
+            return {
+                "max_concurrent_llm": 4,
+                "analysis_mode": "deep",
+                "batch_size": 15,
+                "recommended_model": "mistral:13b",
+                "enable_parallel": True,
+                "memory_buffer_mb": 4096
             }
-        }
-    
-    def get_health_check_config(self) -> Dict[str, Any]:
-        """Get health check configuration for monitoring."""
-        return {
-            "database": {
-                "enabled": True,
-                "timeout": self.database_pool_timeout,
-                "max_retries": 3,
-            },
-            "llm_provider": {
-                "enabled": True,
-                "provider": self.effective_llm_provider,
-                "timeout": 30,
-            },
-            "vector_db": {
-                "enabled": self.rag_enabled,
-                "type": self.vector_db_type,
-                "timeout": 10,
-            },
-            "redis": {
-                "enabled": True,
-                "timeout": 5,
-            },
-            "agents": {
-                "router": {"timeout": self.router_timeout},
-                "sql": {"timeout": self.sql_timeout},
-                "analysis": {"timeout": self.analysis_timeout},
-                "visualization": {"timeout": self.visualization_timeout},
+        elif profile == "laptop_16gb":
+            return {
+                "max_concurrent_llm": 2,
+                "analysis_mode": "standard",
+                "batch_size": 8,
+                "recommended_model": "mistral:7b",
+                "enable_parallel": True,
+                "memory_buffer_mb": 2048
             }
-        }
-    
-    def get_performance_thresholds(self) -> Dict[str, Any]:
-        """Get performance monitoring thresholds."""
-        return {
-            "response_time": {
-                "warning": 1000,  # 1 second
-                "critical": 5000,  # 5 seconds
-            },
-            "query_execution": {
-                "warning": self.slow_query_threshold_ms,
-                "critical": self.slow_query_threshold_ms * 5,
-            },
-            "memory_usage": {
-                "warning": self.query_memory_limit_mb * 0.8,
-                "critical": self.query_memory_limit_mb * 0.95,
-            },
-            "concurrent_queries": {
-                "warning": self.max_concurrent_queries * 0.8,
-                "critical": self.max_concurrent_queries * 0.95,
-            },
-            "cache_hit_rate": {
-                "warning": 0.7,  # 70%
-                "critical": 0.5,  # 50%
-            },
-            "error_rate": {
-                "warning": 0.05,  # 5%
-                "critical": 0.1,   # 10%
+        else:
+            return {
+                "max_concurrent_llm": 1,
+                "analysis_mode": "quick",
+                "batch_size": 5,
+                "recommended_model": "mistral:7b",
+                "enable_parallel": False,
+                "memory_buffer_mb": 1024
             }
-        }
-    
-    def validate_for_environment(self) -> List[str]:
-        """Validate configuration for specific environment and return warnings."""
-        warnings = []
-        
-        if self.is_production:
-            # Production-specific validations
-            if self.max_concurrent_queries < 10:
-                warnings.append("Consider increasing max_concurrent_queries for production")
-            
-            if not self.enable_performance_monitoring:
-                warnings.append("Performance monitoring should be enabled in production")
-            
-            if not self.enable_automatic_backups:
-                warnings.append("Automatic backups should be enabled in production")
-            
-            if self.log_level == "DEBUG":
-                warnings.append("DEBUG log level not recommended for production")
-            
-            if not self.enable_compression:
-                warnings.append("Response compression should be enabled in production")
-        
-        elif self.is_development:
-            # Development-specific suggestions
-            if self.enable_automatic_backups:
-                warnings.append("Automatic backups can be disabled in development")
-            
-            if self.enable_distributed_tracing:
-                warnings.append("Distributed tracing can be disabled in development for performance")
-        
-        # General validations
-        if self.database_pool_size > self.max_concurrent_queries * 3:
-            warnings.append("Database pool size seems too large for concurrent query limit")
-        
-        if self.rag_enabled and not self.enable_business_intelligence:
-            warnings.append("RAG is enabled but business intelligence is disabled")
-        
-        return warnings
     
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
-        extra = "ignore"  # Ignore unknown environment variables
-        json_schema_extra = {
-            "examples": [
-                {
-                    "ENVIRONMENT": "production",
-                    "DATABASE_URL": "postgresql://user:pass@localhost:5432/sqldb",
-                    "OPENAI_API_KEY": "sk-...",
-                    "SECRET_KEY": "your-secret-key-here",
-                    "REDIS_URL": "redis://localhost:6379/0",
-                    "ENABLE_METRICS": True,
-                    "ENABLE_BUSINESS_INTELLIGENCE": True,
-                    "LOG_LEVEL": "INFO"
-                }
-            ]
-        }
+        extra = "ignore"
 
 
 @lru_cache()
@@ -739,7 +494,7 @@ def get_settings() -> Settings:
 
 # Environment-specific configuration overrides
 class DevelopmentSettings(Settings):
-    """Development environment settings."""
+    """Development environment settings with Ollama optimization."""
     ENVIRONMENT: str = "development"
     debug: bool = True
     log_level: str = "DEBUG"
@@ -750,6 +505,11 @@ class DevelopmentSettings(Settings):
     enable_automatic_backups: bool = False
     max_concurrent_queries: int = 5
     query_queue_size: int = 50
+    
+    # Ollama optimizations for development
+    llm_provider: str = "ollama"
+    schema_analysis_mode: str = "quick"
+    max_concurrent_llm_requests: int = 2
 
 
 class StagingSettings(Settings):
@@ -797,7 +557,6 @@ def get_environment_settings() -> Settings:
         return DevelopmentSettings()
 
 
-# Configuration validation and health check
 def validate_configuration() -> Dict[str, Any]:
     """Validate the current configuration and return status."""
     try:
@@ -808,6 +567,7 @@ def validate_configuration() -> Dict[str, Any]:
             "valid": True,
             "environment": settings.ENVIRONMENT,
             "llm_provider": settings.effective_llm_provider,
+            "hardware_profile": settings.effective_hardware_profile,
             "database": settings.database_type,
             "features_enabled": sum(settings.get_feature_flags().values()),
             "total_features": len(settings.get_feature_flags()),
@@ -817,11 +577,14 @@ def validate_configuration() -> Dict[str, Any]:
                 "query_timeout": settings.query_timeout_seconds,
                 "cache_enabled": settings.enable_query_caching,
                 "monitoring_enabled": settings.enable_performance_monitoring,
-            }
+            },
+            "hardware_config": settings.hardware_config,
+            "ollama_config": settings.ollama_config if settings.effective_llm_provider == "ollama" else None
         }
         
         print(f"✅ Configuration valid for {settings.ENVIRONMENT} environment")
         print(f"   LLM Provider: {settings.effective_llm_provider}")
+        print(f"   Hardware Profile: {settings.effective_hardware_profile}")
         print(f"   Database: {settings.database_type}")
         print(f"   Features: {status['features_enabled']}/{status['total_features']} enabled")
         
@@ -841,6 +604,56 @@ def validate_configuration() -> Dict[str, Any]:
         }
 
 
+def validate_for_environment(self) -> List[str]:
+    """Validate configuration for specific environment and return warnings."""
+    warnings = []
+    
+    if self.is_production:
+        # Production-specific validations
+        if self.max_concurrent_queries < 10:
+            warnings.append("Consider increasing max_concurrent_queries for production")
+        
+        if not self.enable_performance_monitoring:
+            warnings.append("Performance monitoring should be enabled in production")
+        
+        if not self.enable_automatic_backups:
+            warnings.append("Automatic backups should be enabled in production")
+        
+        if self.log_level == "DEBUG":
+            warnings.append("DEBUG log level not recommended for production")
+        
+        if not self.enable_compression:
+            warnings.append("Response compression should be enabled in production")
+        
+        if self.effective_llm_provider == "ollama":
+            warnings.append("Consider API-based LLM providers for production reliability")
+    
+    elif self.is_development:
+        # Development-specific suggestions
+        if self.enable_automatic_backups:
+            warnings.append("Automatic backups can be disabled in development")
+        
+        if self.enable_distributed_tracing:
+            warnings.append("Distributed tracing can be disabled in development for performance")
+    
+    # Ollama-specific validations
+    if self.effective_llm_provider == "ollama":
+        if self.max_concurrent_llm_requests > self.gpu_memory_gb // 6:
+            warnings.append(f"Concurrent LLM requests may exceed GPU memory capacity")
+        
+        if self.schema_analysis_mode == "deep" and self.gpu_memory_gb < 20:
+            warnings.append("Deep analysis mode may be slow on GPUs with <20GB memory")
+    
+    # General validations
+    if self.database_pool_size > self.max_concurrent_queries * 3:
+        warnings.append("Database pool size seems too large for concurrent query limit")
+    
+    if self.rag_enabled and not self.enable_business_intelligence:
+        warnings.append("RAG is enabled but business intelligence is disabled")
+    
+    return warnings
+
+
 def generate_env_template() -> str:
     """Generate a .env template file with all available options."""
     template = """# SQL Agent Configuration Template
@@ -854,74 +667,71 @@ APP_VERSION=4.0.0
 # API Configuration
 API_HOST=0.0.0.0
 API_PORT=8000
-API_PREFIX=/api/v1
 CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 
-# Security Configuration
-SECRET_KEY=your-very-long-secret-key-here-at-least-32-characters
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-RATE_LIMIT_PER_MINUTE=100
-ENABLE_CSRF_PROTECTION=true
-SESSION_COOKIE_SECURE=false
+# LLM Configuration
+LLM_PROVIDER=ollama
+OPENAI_API_KEY=sk-your-openai-key-here
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=mistral:7b
+OLLAMA_TIMEOUT=120
+OLLAMA_CONTEXT_WINDOW=4096
+
+# Hardware Configuration
+GPU_MEMORY_GB=16
+HARDWARE_PROFILE=auto
+MAX_CONCURRENT_LLM_REQUESTS=2
+ENABLE_HARDWARE_OPTIMIZATION=true
+
+# Schema Analysis Configuration
+SCHEMA_ANALYSIS_MODE=standard
+SCHEMA_BATCH_SIZE=10
+ENABLE_PARALLEL_ANALYSIS=true
+ANALYSIS_CACHE_TTL_HOURS=24
+FINGERPRINT_CACHE_TTL_HOURS=168
+
+# Cache Configuration
+CACHE_DIRECTORY=./cache
+MAX_CACHE_SIZE_MB=2048
+ENABLE_CACHE_COMPRESSION=true
 
 # Database Configuration
 DATABASE_TYPE=postgresql
 DATABASE_URL=postgresql://username:password@localhost:5432/sql_agent_db
 DATABASE_POOL_SIZE=20
-DATABASE_MAX_OVERFLOW=30
-
-# LLM Configuration
-LLM_PROVIDER=auto
-OPENAI_API_KEY=sk-your-openai-key-here
-OPENAI_MODEL=gpt-4o
-ANTHROPIC_API_KEY=your-anthropic-key-here
-GOOGLE_API_KEY=your-google-key-here
 
 # Vector Database Configuration
 VECTOR_DB_TYPE=chromadb
 CHROMA_DB_PATH=./chroma_db
 EMBEDDING_MODEL=text-embedding-3-large
-EMBEDDING_DIMENSION=3072
 
 # Redis Configuration
 REDIS_URL=redis://localhost:6379/0
-REDIS_CACHE_TTL=3600
+
+# Security Configuration
+SECRET_KEY=your-very-long-secret-key-here-at-least-32-characters
+ENABLE_CSRF_PROTECTION=true
 
 # Performance Configuration
 MAX_CONCURRENT_QUERIES=20
 QUERY_TIMEOUT_SECONDS=60
-MAX_ROWS_RETURNED=10000
 ENABLE_QUERY_CACHING=true
 ENABLE_QUERY_OPTIMIZATION=true
 
 # Business Intelligence Features
 ENABLE_BUSINESS_INTELLIGENCE=true
-BUSINESS_DOMAIN_CLASSIFICATION=true
 ENABLE_SCHEMA_PROFILING=true
 ENABLE_DATA_QUALITY_CHECKS=true
 
 # Monitoring Configuration
 ENABLE_METRICS=true
 ENABLE_PERFORMANCE_MONITORING=true
-ENABLE_DISTRIBUTED_TRACING=true
 LOG_LEVEL=INFO
-LOG_FORMAT=structured
 
 # Feature Flags
 ENABLE_VISUALIZATION=true
 ENABLE_ANALYSIS=true
 ENABLE_AI_EXPLANATIONS=true
-ENABLE_QUERY_SUGGESTIONS=true
-ENABLE_AUTO_OPTIMIZATION=true
-
-# File Upload Configuration
-MAX_FILE_SIZE_MB=100
-ALLOWED_FILE_TYPES=.csv,.json,.xlsx,.sql,.parquet
-
-# Backup Configuration
-ENABLE_AUTOMATIC_BACKUPS=true
-BACKUP_INTERVAL_HOURS=24
-BACKUP_RETENTION_DAYS=7
 """
     return template
 
