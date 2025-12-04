@@ -220,10 +220,16 @@ class SQLAgent(BaseAgent):
             
             # Build schema information string
             schema_info = self._build_schema_info_string(selected_tables, enriched_context)
-            
+
+            # Log the schema info being sent to LLM for debugging
+            self.logger.info("schema_info_for_llm",
+                           schema_info_length=len(schema_info),
+                           selected_tables=selected_tables,
+                           schema_info=schema_info)  # Full schema info for debugging
+
             # Build business context
             domain_context = f"Business context: {', '.join(business_domains)}" if business_domains else ""
-            
+
             system_prompt = f"""You are an expert SQL generator. Convert natural language to SQL using the provided schema.
 
 Available Tables and Columns:
@@ -232,7 +238,7 @@ Available Tables and Columns:
 {domain_context}
 
 SQL Generation Rules:
-1. ONLY use tables and columns from the schema above
+1. CRITICAL: Use EXACT column names from the schema above - do NOT modify or guess column names
 2. Use proper PostgreSQL syntax
 3. ONLY generate SELECT queries (read-only)
 4. Use appropriate JOINs when combining tables
@@ -240,8 +246,10 @@ SQL Generation Rules:
 6. Use LIMIT for top/first queries
 7. Use aggregate functions (COUNT, SUM, AVG) appropriately
 8. Return ONLY the SQL query, no explanations or markdown
+9. If a column name has no underscore (like "isfraud"), use it exactly as shown, do NOT add underscores
 
-IMPORTANT: Return ONLY the executable SQL query without any formatting, explanations, or markdown."""
+IMPORTANT: Return ONLY the executable SQL query without any formatting, explanations, or markdown.
+CRITICAL: Use EXACT column names from the schema - do not convert snake_case, do not add/remove underscores."""
 
             human_prompt = f"Generate SQL for: {query}"
 
@@ -407,39 +415,91 @@ IMPORTANT: Return ONLY the executable SQL query without any formatting, explanat
             return ""
     
     def _build_schema_info_string(self, selected_tables: List[str], enriched_context: Dict[str, Any]) -> str:
-        """Build concise schema information for prompts."""
+        """Build comprehensive schema information including data types and sample data for better SQL generation."""
         if not selected_tables:
             return "No specific tables selected - use best judgment"
-        
+
         schema_parts = []
         column_contexts = enriched_context.get("column_contexts", {})
         relationships = enriched_context.get("relationships", {})
-        
-        # Add table and column information
+
+        # Add detailed table and column information with data types and samples
         for table_name in selected_tables:
             table_info = [f"Table: {table_name}"]
-            
-            # Add column information if available
+
+            # Add column information with data types if available
             if table_name in column_contexts:
                 columns = column_contexts[table_name]
-                column_names = [col.get("column_name", "") for col in columns[:10]]  # Limit to 10
-                if column_names:
-                    table_info.append(f"  Columns: {', '.join(filter(None, column_names))}")
-            
+                column_details = []
+
+                for col in columns[:15]:  # Limit to 15 columns for context window
+                    col_name = col.get("column_name", "")
+                    col_type = col.get("data_type", "unknown")
+                    is_nullable = col.get("nullable", True)
+                    is_pk = col.get("primary_key", False)
+                    is_fk = col.get("foreign_key", False)
+                    sample_values = col.get("sample_values", [])
+
+                    if not col_name:
+                        continue
+
+                    # Build column description
+                    col_desc = f"{col_name} ({col_type})"
+
+                    # Add constraints
+                    constraints = []
+                    if is_pk:
+                        constraints.append("PK")
+                    if is_fk:
+                        fk_ref = col.get("foreign_key_ref", "")
+                        if fk_ref:
+                            constraints.append(f"FK→{fk_ref}")
+                        else:
+                            constraints.append("FK")
+                    if not is_nullable:
+                        constraints.append("NOT NULL")
+
+                    if constraints:
+                        col_desc += f" [{', '.join(constraints)}]"
+
+                    # Add sample values if available (very helpful for LLM understanding)
+                    if sample_values:
+                        # Format sample values nicely
+                        sample_str = ", ".join([str(v) for v in sample_values[:3]])
+                        col_desc += f" — examples: {sample_str}"
+
+                    column_details.append(col_desc)
+
+                if column_details:
+                    table_info.append(f"  Columns:")
+                    for detail in column_details:
+                        table_info.append(f"    - {detail}")
+
             schema_parts.append("\n".join(table_info))
-        
+
         # Add relationship information for JOINs
         if relationships.get("relationships"):
             rel_info = []
-            for rel in relationships["relationships"][:3]:  # Limit to 3 relationships
+            for rel in relationships["relationships"][:5]:  # Increased to 5 for better context
                 source = rel.get("source_table", "")
+                source_col = rel.get("source_column", "")
                 targets = rel.get("target_tables", [])
+                target_cols = rel.get("target_columns", [])
+
                 if source in selected_tables and any(t in selected_tables for t in targets):
-                    rel_info.append(f"{source} links to {', '.join(targets)}")
-            
+                    # Provide detailed JOIN information
+                    if source_col and target_cols:
+                        for i, target in enumerate(targets):
+                            if i < len(target_cols):
+                                rel_info.append(f"{source}.{source_col} = {target}.{target_cols[i]}")
+                    else:
+                        rel_info.append(f"{source} links to {', '.join(targets)}")
+
             if rel_info:
-                schema_parts.append(f"\nTable Relationships:\n{chr(10).join(rel_info)}")
-        
+                schema_parts.append(f"\nTable Relationships (for JOINs):")
+                for info in rel_info:
+                    schema_parts.append(f"  - {info}")
+
         return "\n\n".join(schema_parts)
     
     async def _fallback_sql_generation(self, query: str, schema_context: Dict[str, Any]) -> str:

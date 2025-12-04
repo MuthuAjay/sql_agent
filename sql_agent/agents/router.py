@@ -634,7 +634,7 @@ Respond in JSON format:
                 except Exception as e:
                     self.logger.warning("relationship_insights_failed", error=str(e))
             
-            # Add column context for detailed SQL generation
+            # Add column context for detailed SQL generation with data types and sample data
             if selected_tables:
                 try:
                     # Get column context from vector store
@@ -642,8 +642,51 @@ Respond in JSON format:
                     for table_name in selected_tables[:3]:  # Limit to top 3 tables
                         table_context = await vector_store.get_table_context(table_name, database_name)
                         if table_context.get("column_contexts"):
-                            column_contexts[table_name] = table_context["column_contexts"]
-                    
+                            # Enrich column contexts with detailed metadata for better SQL generation
+                            enriched_columns = []
+                            for col_ctx in table_context["column_contexts"]:
+                                metadata = col_ctx.get("metadata", {})
+                                enriched_col = {
+                                    "column_name": metadata.get("column_name", col_ctx.get("column_name", "")),
+                                    "data_type": metadata.get("data_type", "unknown"),
+                                    "nullable": metadata.get("is_nullable", True),
+                                    "primary_key": metadata.get("is_primary_key", False),
+                                    "foreign_key": metadata.get("is_foreign_key", False),
+                                    "business_concept": metadata.get("business_concept", ""),
+                                }
+                                enriched_columns.append(enriched_col)
+
+                            # Fetch sample data for this table to help LLM understand data patterns
+                            try:
+                                from sql_agent.core.database import db_manager
+                                sample_data = await db_manager.get_sample_data(table_name, limit=3)
+                                if sample_data and sample_data.get("data"):
+                                    # Add sample values to each column
+                                    sample_rows = sample_data["data"]
+                                    columns = sample_data.get("columns", [])
+
+                                    for enriched_col in enriched_columns:
+                                        col_name = enriched_col["column_name"]
+                                        if col_name in columns:
+                                            col_idx = columns.index(col_name)
+                                            # Extract sample values for this column
+                                            sample_values = [
+                                                row[col_idx] for row in sample_rows
+                                                if col_idx < len(row) and row[col_idx] is not None
+                                            ]
+                                            enriched_col["sample_values"] = sample_values[:3]  # Max 3 samples
+                                        else:
+                                            enriched_col["sample_values"] = []
+                            except Exception as sample_err:
+                                self.logger.debug("sample_data_fetch_failed",
+                                                table=table_name,
+                                                error=str(sample_err))
+                                # Add empty sample values if fetch fails
+                                for enriched_col in enriched_columns:
+                                    enriched_col["sample_values"] = []
+
+                            column_contexts[table_name] = enriched_columns
+
                     enriched_context["column_contexts"] = column_contexts
                 except Exception as e:
                     self.logger.warning("column_context_enrichment_failed", error=str(e))

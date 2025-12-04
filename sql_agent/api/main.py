@@ -82,16 +82,13 @@ async def initialize_fraud_detectors():
             logger.info("Fraud detection disabled in configuration")
             return None, None
 
-        # Get LLM provider from orchestrator
-        llm_provider = orchestrator.llm_provider if orchestrator else None
-
-        # Initialize all fraud detectors
+        # Initialize all fraud detectors (they don't require llm_provider in constructor)
         detectors = {
-            'transaction': TransactionFraudDetector(llm_provider=llm_provider),
-            'schema': SchemaVulnerabilityDetector(llm_provider=llm_provider),
-            'temporal': TemporalAnomalyDetector(llm_provider=llm_provider),
-            'statistical': StatisticalAnomalyDetector(llm_provider=llm_provider),
-            'relationship': RelationshipIntegrityDetector(llm_provider=llm_provider)
+            'transaction': TransactionFraudDetector(),
+            'schema': SchemaVulnerabilityDetector(),
+            'temporal': TemporalAnomalyDetector(),
+            'statistical': StatisticalAnomalyDetector(),
+            'relationship': RelationshipIntegrityDetector()
         }
 
         # Initialize fraud report generator

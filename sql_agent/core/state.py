@@ -1,11 +1,8 @@
 """State management for SQL Agent."""
 
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 from pydantic import BaseModel, Field
-
-if TYPE_CHECKING:
-    from sql_agent.fraud.models import FraudAnalysisReport
 
 
 class QueryResult(BaseModel):
@@ -73,7 +70,7 @@ class AgentState(BaseModel):
     query_result: Optional[QueryResult] = Field(default=None)
     analysis_result: Optional[AnalysisResult] = Field(default=None)
     visualization_config: Optional[VisualizationConfig] = Field(default=None)
-    fraud_analysis_result: Optional['FraudAnalysisReport'] = Field(default=None, description="Fraud detection analysis result")
+    fraud_analysis_result: Optional[Any] = Field(default=None, description="Fraud detection analysis result")
     
     # Metadata
     metadata: Dict[str, Any] = Field(default_factory=dict)
