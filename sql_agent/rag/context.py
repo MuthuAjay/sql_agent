@@ -23,11 +23,16 @@ class VectorSearchResult:
 
 
 class ContextManager:
-    """Manage RAG context retrieval and storage with graceful degradation."""
-    
+    """Manage RAG context retrieval and storage with graceful degradation.
+
+    Note: Fraud pattern indexing can be added here by extending the vector store
+    with fraud-specific embeddings for pattern matching and similarity search.
+    """
+
     def __init__(self):
         self.logger = get_logger("rag.context_manager")
         self._initialized = False
+        self._fraud_patterns_indexed = False  # TODO: Implement fraud pattern indexing
         self._last_schema_update: Optional[datetime] = None
         self._vector_store_available = False
         self._embedding_service_available = False

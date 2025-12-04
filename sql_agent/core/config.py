@@ -208,6 +208,14 @@ class Settings(BaseSettings):
     enable_auto_optimization: bool = Field(default=True, alias="ENABLE_AUTO_OPTIMIZATION")
     enable_collaborative_features: bool = Field(default=True, alias="ENABLE_COLLABORATIVE_FEATURES")
     enable_export_features: bool = Field(default=True, alias="ENABLE_EXPORT_FEATURES")
+
+    # Fraud Detection Configuration
+    enable_fraud_detection: bool = Field(default=True, alias="ENABLE_FRAUD_DETECTION")
+    fraud_analysis_mode: Literal["quick", "standard", "deep"] = Field(default="standard", alias="FRAUD_ANALYSIS_MODE")
+    fraud_detection_timeout: int = Field(default=180, alias="FRAUD_DETECTION_TIMEOUT")
+    fraud_confidence_threshold: float = Field(default=0.7, alias="FRAUD_CONFIDENCE_THRESHOLD")
+    fraud_risk_level_threshold: Literal["low", "medium", "high", "critical"] = Field(default="medium", alias="FRAUD_RISK_LEVEL_THRESHOLD")
+    fraud_report_format: Literal["html", "json", "text", "pdf"] = Field(default="html", alias="FRAUD_REPORT_FORMAT")
     
     # Logging Configuration
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
@@ -445,6 +453,7 @@ class Settings(BaseSettings):
             "auto_optimization": self.enable_auto_optimization,
             "collaborative_features": self.enable_collaborative_features,
             "export_features": self.enable_export_features,
+            "fraud_detection": self.enable_fraud_detection,
         }
     
     def get_hardware_optimized_settings(self) -> Dict[str, Any]:
@@ -732,6 +741,14 @@ LOG_LEVEL=INFO
 ENABLE_VISUALIZATION=true
 ENABLE_ANALYSIS=true
 ENABLE_AI_EXPLANATIONS=true
+
+# Fraud Detection Configuration
+ENABLE_FRAUD_DETECTION=true
+FRAUD_ANALYSIS_MODE=standard
+FRAUD_DETECTION_TIMEOUT=180
+FRAUD_CONFIDENCE_THRESHOLD=0.7
+FRAUD_RISK_LEVEL_THRESHOLD=medium
+FRAUD_REPORT_FORMAT=html
 """
     return template
 

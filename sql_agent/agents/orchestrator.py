@@ -52,6 +52,9 @@ class AgentOrchestrator:
         # Analysis and visualization agents (optional for now)
         self.analysis_agent = None
         self.visualization_agent = None
+
+        # Fraud detection agent (optional, lazy-loaded)
+        self.fraud_agent = None
         
         # Table selection state
         self._available_tables: Dict[str, Dict[str, Any]] = {}
@@ -162,10 +165,14 @@ class AgentOrchestrator:
             # Step 5: Optional analysis/visualization (if requested)
             if context and context.get("include_analysis"):
                 state = await self._run_optional_analysis(state)
-            
+
             if context and context.get("include_visualization"):
                 state = await self._run_optional_visualization(state)
-            
+
+            # Step 6: Optional fraud detection (if requested)
+            if context and context.get("include_fraud_detection"):
+                state = await self._run_fraud_detection_agent(state)
+
             # Finalize state
             state.end_time = datetime.utcnow()
             state.processing_time = (state.end_time - state.start_time).total_seconds()
@@ -896,12 +903,63 @@ Guidelines:
             else:
                 self.logger.info("skipping_visualization", session_id=state.session_id, reason="agent_not_available_or_no_data")
                 return state
-                
+
         except Exception as e:
             self.logger.warning("visualization_agent_failed", error=str(e), session_id=state.session_id)
             state.add_error(f"Visualization agent failed: {str(e)}")
             return state
-    
+
+    async def _run_fraud_detection_agent(self, state: AgentState) -> AgentState:
+        """Run fraud detection analysis on query results."""
+        try:
+            self.logger.info("running_fraud_detection", session_id=state.session_id)
+
+            if not self.fraud_agent:
+                # Lazy initialize fraud agent
+                try:
+                    from ..api.main import fraud_detectors
+                    self.fraud_agent = fraud_detectors
+                except ImportError:
+                    self.logger.warning("fraud_detectors_not_available", session_id=state.session_id)
+                    return state
+
+            if self.fraud_agent and state.query_result:
+                # Determine primary table from metadata
+                primary_table = state.metadata.get("primary_table", "")
+
+                if not primary_table and state.metadata.get("selected_tables"):
+                    # Use first selected table
+                    selected_tables = state.metadata.get("selected_tables", [])
+                    if selected_tables:
+                        primary_table = selected_tables[0]
+
+                if primary_table:
+                    self.logger.info("running_fraud_detection_on_table", table=primary_table, session_id=state.session_id)
+
+                    # Run transaction fraud detection
+                    fraud_result = await self.fraud_agent['transaction'].detect(
+                        table_name=primary_table,
+                        database_manager=db_manager
+                    )
+
+                    state.fraud_analysis_result = fraud_result
+                    state.metadata["fraud_detection_completed"] = True
+
+                    self.logger.info(
+                        "fraud_detection_completed",
+                        session_id=state.session_id,
+                        scenarios_found=len(fraud_result.get('scenarios', [])) if fraud_result else 0
+                    )
+                else:
+                    self.logger.warning("no_table_for_fraud_detection", session_id=state.session_id)
+
+            return state
+
+        except Exception as e:
+            self.logger.warning("fraud_detection_failed", error=str(e), session_id=state.session_id)
+            state.add_warning(f"Fraud detection failed: {str(e)}")
+            return state
+
     async def _test_llm_provider(self):
         """Test LLM provider connectivity."""
         try:

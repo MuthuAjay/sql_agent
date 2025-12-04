@@ -32,18 +32,36 @@ def get_database() -> Any:
 @router.get("/", response_model=SchemaResponse)
 async def get_schema(
     database_name: Optional[str] = None,
+    include_vulnerability_assessment: bool = False,
     database_manager = Depends(get_database)
 ) -> SchemaResponse:
     """
     Get database schema information.
-    
+
     This endpoint returns comprehensive schema information including
     tables, columns, relationships, and metadata.
     """
     try:
         # Get schema information from database manager
         schema_info = await database_manager.get_schema_info()
-        
+
+        # Vulnerability assessment if requested
+        vulnerability_assessment = None
+        if include_vulnerability_assessment:
+            try:
+                from sql_agent.api.main import fraud_detectors
+                from sql_agent.core.config import settings
+
+                if fraud_detectors and settings.enable_fraud_detection:
+                    schema_detector = fraud_detectors.get('schema')
+                    if schema_detector:
+                        vulnerability_assessment = await schema_detector.detect(
+                            table_name=None,  # Assess entire schema
+                            database_manager=database_manager
+                        )
+            except Exception as e:
+                logger.warning("Vulnerability assessment failed", error=str(e))
+
         # Convert to API models - FIX: Iterate over tables array, not .items()
         tables = []
         total_columns = 0

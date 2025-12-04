@@ -12,6 +12,26 @@ import uuid
 
 from pydantic import BaseModel, Field, validator, root_validator
 
+# Import fraud models
+try:
+    from sql_agent.fraud.models import (
+        FraudDetectionRequest as FraudReq,
+        FraudDetectionResponse as FraudResp,
+        FraudAnalysisReport,
+        FraudScenario,
+        RiskLevel as FraudRiskLevel,
+        FraudCategory
+    )
+    FRAUD_MODELS_AVAILABLE = True
+except ImportError:
+    FRAUD_MODELS_AVAILABLE = False
+    FraudReq = None
+    FraudResp = None
+    FraudAnalysisReport = None
+    FraudScenario = None
+    FraudRiskLevel = None
+    FraudCategory = None
+
 
 # Enhanced Enums for Phase 3
 class QueryIntent(str, Enum):
@@ -127,6 +147,14 @@ class OptimizationType(str, Enum):
     PARTITION_SUGGESTION = "partition_suggestion"
     CACHING = "caching"
     MATERIALIZED_VIEW = "materialized_view"
+
+
+class RiskLevel(str, Enum):
+    """Fraud risk level indicators."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
 
 
 # Phase 3 New Models
@@ -728,7 +756,7 @@ class QueryResponse(BaseResponse):
     visualization_result: Optional[VisualizationResult] = Field(None, description="Visualization result")
     suggestions: List[str] = Field(default_factory=list, description="Follow-up suggestions")
     cached: bool = Field(False, description="Whether response was cached")
-    
+
     # Phase 3 enhancements
     business_context: Optional[BusinessDomain] = Field(None, description="Detected business context")
     performance_metrics: Optional[PerformanceMetrics] = Field(None, description="Query performance metrics")
@@ -736,6 +764,9 @@ class QueryResponse(BaseResponse):
     related_queries: List[str] = Field(default_factory=list, description="Related query suggestions")
     data_lineage: Optional[List[str]] = Field(None, description="Data lineage information")
     compliance_notes: List[str] = Field(default_factory=list, description="Compliance and governance notes")
+
+    # Fraud detection integration
+    fraud_report: Optional[Any] = Field(None, description="Fraud analysis report if requested")
 
 
 class ErrorResponse(BaseModel):
@@ -879,35 +910,40 @@ __all__ = [
     # Enums
     "QueryIntent", "ChartType", "DatabaseType", "QueryStatus", "AnalysisType",
     "BusinessDomain", "RelationshipType", "PerformanceLevel", "DataQualityLevel", "OptimizationType",
-    
+    "RiskLevel",
+
     # Base Models
     "BaseRequest", "BaseResponse",
-    
+
     # Request Models
-    "QueryRequest", "SQLGenerationRequest", "SQLExecutionRequest", 
+    "QueryRequest", "SQLGenerationRequest", "SQLExecutionRequest",
     "AnalysisRequest", "VisualizationRequest",
-    
+
     # Information Models
     "ColumnInfo", "IndexInfo", "RelationshipInfo", "TableInfo", "DatabaseInfo",
-    
+
     # Result Models
-    "ValidationResult", "SQLResult", "StatisticalSummary", "Insight", "Anomaly", 
+    "ValidationResult", "SQLResult", "StatisticalSummary", "Insight", "Anomaly",
     "Trend", "Recommendation", "AnalysisResult", "ChartConfig", "VisualizationResult",
-    
+
     # Response Models
-    "QueryResponse", "ErrorResponse", "HealthResponse", "HealthCheckResponse", 
+    "QueryResponse", "ErrorResponse", "HealthResponse", "HealthCheckResponse",
     "SchemaResponse", "FeedbackRequest",
-    
+
     # Pagination
     "PaginationParams", "PaginatedResponse",
-    
+
     # Phase 3 Models
     "BusinessDomainInfo", "PerformanceMetrics", "InferredRelationship", "SchemaChange",
-    "AgentPerformance", "SystemMetrics", "DomainInsight", "QueryPattern", 
+    "AgentPerformance", "SystemMetrics", "DomainInsight", "QueryPattern",
     "OptimizationSuggestion", "DataQualityAssessment",
-    
+
     # Configuration Models
     "CacheConfig", "SecurityConfig", "MonitoringConfig",
-    
+
     # Analytics Models
-    "UsageAnalytics", "AuditLog"]
+    "UsageAnalytics", "AuditLog",
+
+    # Fraud Detection Models (conditionally exported)
+    "FraudAnalysisReport", "FraudScenario", "FraudRiskLevel", "FraudCategory"
+]

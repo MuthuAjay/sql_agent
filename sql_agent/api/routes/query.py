@@ -55,6 +55,18 @@ def get_orchestrator() -> Optional[AgentOrchestrator]:
         logger.warning("Orchestrator not available", error=str(e))
         return None
 
+def get_fraud_detectors() -> Optional[Dict[str, Any]]:
+    """Get fraud detectors instance with graceful fallback."""
+    try:
+        from sql_agent.api.main import fraud_detectors
+        return fraud_detectors
+    except ImportError as e:
+        logger.warning("Failed to import fraud detectors", error=str(e))
+        return None
+    except Exception as e:
+        logger.warning("Fraud detectors not available", error=str(e))
+        return None
+
 
 def get_orchestrator_required() -> AgentOrchestrator:
     """Get orchestrator instance with required dependency (raises 503 if not available)."""
@@ -394,6 +406,26 @@ async def process_with_orchestrator(
                 logger.warning("Failed to create visualization result", error=str(e))
                 visualization_result = None
         
+        # Fraud analysis if requested
+        fraud_report = None
+        if request.context and request.context.get("include_fraud_analysis"):
+            try:
+                fraud_detectors = get_fraud_detectors()
+                if fraud_detectors and sql_result:
+                    # Extract table name from state metadata
+                    primary_table = final_state.metadata.get("primary_table", "")
+                    if not primary_table and final_state.metadata.get("selected_tables"):
+                        primary_table = final_state.metadata["selected_tables"][0]
+
+                    if primary_table:
+                        from sql_agent.api.main import database_manager
+                        fraud_report = await fraud_detectors['transaction'].detect(
+                            table_name=primary_table,
+                            database_manager=database_manager
+                        )
+            except Exception as e:
+                logger.warning("Fraud analysis failed", error=str(e))
+
         # Generate suggestions
         suggestions = []
         if sql_result and sql_result.data:
@@ -402,19 +434,20 @@ async def process_with_orchestrator(
                 f"Aggregate the data: Use GROUP BY to summarize",
                 "Export results: Download the data in CSV format"
             ])
-        
+
         if not request.include_analysis:
             suggestions.append("Get insights: Enable analysis to discover patterns")
-        
+
         if not request.include_visualization:
             suggestions.append("Visualize data: Enable visualization to create charts")
-        
+
         return {
             "intent": intent,
             "confidence": confidence,
             "sql_result": sql_result,
             "analysis_result": analysis_result,
             "visualization_result": visualization_result,
+            "fraud_report": fraud_report,
             "suggestions": suggestions[:5]
         }
         

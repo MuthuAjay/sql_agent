@@ -19,9 +19,22 @@ from sql_agent.core.config import settings
 from sql_agent.core.database import db_manager
 from sql_agent.agents.orchestrator import AgentOrchestrator
 from sql_agent.mcp.server import mcp_server as mcp_fastapi_app
-from sql_agent.api.dependencies import set_global_instances
+from sql_agent.api.dependencies import set_global_instances, set_fraud_instances
 from sql_agent.api.models import HealthCheckResponse, ErrorResponse
 from .routes import query, sql, analysis, viz, schema
+
+# Import fraud detection components
+try:
+    from sql_agent.fraud.detectors.transaction import TransactionFraudDetector
+    from sql_agent.fraud.detectors.schema import SchemaVulnerabilityDetector
+    from sql_agent.fraud.detectors.temporal import TemporalAnomalyDetector
+    from sql_agent.fraud.detectors.statistical import StatisticalAnomalyDetector
+    from sql_agent.fraud.detectors.relationship import RelationshipIntegrityDetector
+    from sql_agent.fraud.reporting import FraudReportGenerator
+    FRAUD_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Fraud detection modules not available: {e}")
+    FRAUD_AVAILABLE = False
 
 # Configure structured logging
 logger = structlog.get_logger(__name__)
@@ -29,6 +42,8 @@ logger = structlog.get_logger(__name__)
 # Global instances
 database_manager = None
 orchestrator = None
+fraud_detectors = None
+fraud_report_generator = None
 
 """
 RAG Initialization Fix
@@ -41,26 +56,61 @@ Add this to your main.py startup to properly initialize RAG components.
 async def initialize_rag_components():
     """Initialize RAG components with proper error handling."""
     logger.info("Initializing RAG components")
-    
+
     try:
         # Initialize context manager
         from sql_agent.rag.context import context_manager
         await context_manager.initialize()
         logger.info("RAG context manager initialized successfully")
-        
+
         return True
-        
+
     except Exception as e:
         logger.warning(f"RAG initialization failed (will use fallback): {e}")
         # Don't fail startup - RAG is optional
         return False
+
+async def initialize_fraud_detectors():
+    """Initialize fraud detection components."""
+    logger.info("Initializing fraud detection components")
+
+    try:
+        if not FRAUD_AVAILABLE:
+            logger.info("Fraud detection modules not available")
+            return None, None
+
+        if not settings.enable_fraud_detection:
+            logger.info("Fraud detection disabled in configuration")
+            return None, None
+
+        # Get LLM provider from orchestrator
+        llm_provider = orchestrator.llm_provider if orchestrator else None
+
+        # Initialize all fraud detectors
+        detectors = {
+            'transaction': TransactionFraudDetector(llm_provider=llm_provider),
+            'schema': SchemaVulnerabilityDetector(llm_provider=llm_provider),
+            'temporal': TemporalAnomalyDetector(llm_provider=llm_provider),
+            'statistical': StatisticalAnomalyDetector(llm_provider=llm_provider),
+            'relationship': RelationshipIntegrityDetector(llm_provider=llm_provider)
+        }
+
+        # Initialize fraud report generator
+        report_gen = FraudReportGenerator()
+
+        logger.info("Fraud detectors initialized successfully")
+        return detectors, report_gen
+
+    except Exception as e:
+        logger.warning(f"Fraud detection initialization failed (will use fallback): {e}")
+        return None, None
 
 # Modify your lifespan function in main.py:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown."""
-    global database_manager, orchestrator
+    global database_manager, orchestrator, fraud_detectors, fraud_report_generator
 
     # Startup
     logger.info("Starting SQL Agent API")
@@ -86,6 +136,14 @@ async def lifespan(app: FastAPI):
             logger.info("RAG components initialized successfully")
         else:
             logger.info("RAG components unavailable - using fallback mode")
+
+        # ADDED: Initialize fraud detection components
+        fraud_detectors, fraud_report_generator = await initialize_fraud_detectors()
+        if fraud_detectors:
+            set_fraud_instances(fraud_detectors, fraud_report_generator)
+            logger.info("Fraud detection components initialized successfully")
+        else:
+            logger.info("Fraud detection components unavailable")
 
         # Set global instances for dependency injection
         set_global_instances(database_manager, orchestrator)
@@ -378,6 +436,15 @@ async def health_check() -> HealthCheckResponse:
         health_status["services"]["orchestrator"] = f"unhealthy: {str(e)}"
         health_status["status"] = "degraded"
 
+    # Check fraud detectors
+    try:
+        if fraud_detectors:
+            health_status["services"]["fraud_detection"] = "initialized"
+        else:
+            health_status["services"]["fraud_detection"] = "not_initialized"
+    except Exception as e:
+        health_status["services"]["fraud_detection"] = f"unhealthy: {str(e)}"
+
     return HealthCheckResponse(**health_status)
 
 
@@ -453,6 +520,20 @@ app.include_router(
     tags=["Schema Management"],
     responses={404: {"description": "Schema not found"}},
 )
+
+# Import and include fraud router if available
+if FRAUD_AVAILABLE:
+    try:
+        from .routes import fraud
+        app.include_router(
+            fraud.router,
+            prefix="/api/v1/fraud",
+            tags=["Fraud Detection"],
+            responses={400: {"description": "Fraud analysis failed"}},
+        )
+        logger.info("Fraud detection routes registered")
+    except ImportError as e:
+        logger.warning(f"Fraud routes not available: {e}")
 
 
 # Additional utility endpoints

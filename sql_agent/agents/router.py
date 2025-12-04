@@ -61,18 +61,27 @@ class RouterAgent(BaseAgent):
                     "pie chart", "scatter plot", "dashboard", "report", "visual", "diagram"
                 ],
                 "business_domains": ["visualization", "reporting", "dashboard"]
+            },
+            "fraud_detection": {
+                "keywords": [
+                    "fraud", "suspicious", "anomaly", "unusual", "vulnerability",
+                    "risk", "threat", "detection", "pattern", "outlier", "abnormal",
+                    "irregular", "compliance", "audit", "security", "breach", "attack"
+                ],
+                "business_domains": ["fraud_detection", "security", "compliance", "audit"]
             }
         }
         
         # Business domain concepts for enhanced routing
         self.business_domains = {
             "customer_management": ["customer", "client", "user", "account", "subscriber"],
-            "product_catalog": ["product", "item", "inventory", "catalog", "merchandise"], 
+            "product_catalog": ["product", "item", "inventory", "catalog", "merchandise"],
             "order_processing": ["order", "transaction", "purchase", "sale", "payment"],
             "financial": ["revenue", "profit", "cost", "budget", "finance", "accounting"],
             "hr_management": ["employee", "staff", "hr", "personnel", "payroll"],
             "marketing": ["campaign", "promotion", "lead", "conversion", "marketing"],
-            "operations": ["logistics", "warehouse", "shipping", "supply", "operations"]
+            "operations": ["logistics", "warehouse", "shipping", "supply", "operations"],
+            "fraud_detection": ["fraud", "suspicious", "anomaly", "risk", "threat", "vulnerability", "compliance", "audit"]
         }
     
     async def process(self, state: AgentState) -> AgentState:

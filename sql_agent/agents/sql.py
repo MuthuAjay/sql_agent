@@ -25,10 +25,18 @@ class SQLAgent(BaseAgent):
         
         # SQL safety patterns
         self.dangerous_patterns = [
-            r'\bDROP\b', r'\bDELETE\b', r'\bTRUNCATE\b', r'\bINSERT\b', 
-            r'\bUPDATE\b', r'\bALTER\b', r'\bCREATE\b', r'\bGRANT\b', 
+            r'\bDROP\b', r'\bDELETE\b', r'\bTRUNCATE\b', r'\bINSERT\b',
+            r'\bUPDATE\b', r'\bALTER\b', r'\bCREATE\b', r'\bGRANT\b',
             r'\bREVOKE\b', r'\bEXEC\b', r'\bEXECUTE\b'
         ]
+
+        # Fraud detection SQL patterns
+        self.fraud_detection_patterns = {
+            "duplicate_detection": "COUNT(*) > 1 GROUP BY",
+            "outlier_detection": "STDDEV|AVG.*WHERE.*>|<",
+            "temporal_anomaly": "DATE_TRUNC|EXTRACT.*COUNT",
+            "statistical_check": "PERCENTILE|STDDEV|VARIANCE"
+        }
     
     async def process(self, state: AgentState) -> AgentState:
         """Process the query with schema-aware SQL generation."""
