@@ -1,0 +1,78 @@
+# Development Dependencies
+# Install with: pip install -r requirements.txt -r requirements-dev.txt
+
+# Include base requirements
+-r requirements.txt
+
+# Testing Framework
+pytest>=8.0.0,<9.0.0
+pytest-asyncio>=0.24.0,<0.25.0
+pytest-mock>=3.14.0,<4.0.0
+pytest-cov>=4.1.0,<5.0.0
+pytest-xdist>=3.5.0,<4.0.0
+pytest-timeout>=2.2.0,<3.0.0
+
+# Code Quality & Formatting
+black>=24.0.0,<25.0.0
+isort>=5.13.0,<6.0.0
+ruff>=0.4.0,<0.5.0
+flake8>=7.0.0,<8.0.0
+pylint>=3.0.0,<4.0.0
+autopep8>=2.0.0,<3.0.0
+
+# Type Checking
+mypy>=1.13.0,<2.0.0
+types-requests>=2.31.0
+types-redis>=4.6.0
+types-pytz>=2024.1
+
+# Git Hooks
+pre-commit>=4.0.0,<5.0.0
+
+# Documentation
+mkdocs>=1.6.0,<2.0.0
+mkdocs-material>=9.6.0,<10.0.0
+mkdocstrings[python]>=0.24.0,<0.25.0
+mkdocs-mermaid2-plugin>=1.1.0,<2.0.0
+
+# Security Scanning
+bandit>=1.7.0,<2.0.0
+safety>=3.0.0,<4.0.0
+
+# Test Data Generation
+faker>=22.0.0,<23.0.0
+factory-boy>=3.3.0,<4.0.0
+hypothesis>=6.96.0,<7.0.0
+
+# Debugging
+ipython>=8.20.0,<9.0.0
+ipdb>=0.13.0,<0.14.0
+rich>=13.7.0,<14.0.0
+
+# Performance Profiling
+py-spy>=0.3.0,<0.4.0
+memory-profiler>=0.61.0,<0.62.0
+line-profiler>=4.1.0,<5.0.0
+
+# Coverage
+coverage[toml]>=7.4.0,<8.0.0
+
+# Mock & Fixtures
+responses>=0.25.0,<0.26.0
+freezegun>=1.4.0,<2.0.0
+
+# Database Testing
+sqlalchemy-utils>=0.41.0,<0.42.0
+
+# API Testing
+httpx>=0.28.0,<0.29.0
+
+# Environment Management
+python-decouple>=3.8,<4.0
+
+# Code Complexity Analysis
+radon>=6.0.0,<7.0.0
+mccabe>=0.7.0,<0.8.0
+
+# Import Sorting
+absolufy-imports>=0.3.0,<0.4.0

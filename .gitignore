@@ -6,3 +6,4 @@ venv
 chroma_db
 node_modules
 test_results
+.venv

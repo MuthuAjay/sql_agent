@@ -505,6 +505,24 @@
                 <h3>Performance Test</h3>
                 <p>Test system performance with concurrent requests</p>
             </div>
+
+            <div class="menu-card" onclick="testFraudDetection()">
+                <span class="icon">🛡️</span>
+                <h3>Fraud Detection</h3>
+                <p>Analyze tables for fraud patterns and vulnerabilities</p>
+            </div>
+
+            <div class="menu-card" onclick="getFraudScenarios()">
+                <span class="icon">📋</span>
+                <h3>Fraud Scenarios</h3>
+                <p>View available fraud detection patterns</p>
+            </div>
+
+            <div class="menu-card" onclick="testFraudHealth()">
+                <span class="icon">❤️</span>
+                <h3>Fraud Service Health</h3>
+                <p>Check fraud detection service status</p>
+            </div>
         </div>
 
         <div id="resultsPanel" class="results-panel">
@@ -580,6 +598,28 @@
                 <input type="number" id="testDuration" value="30" min="5" max="300">
             </div>
             <button class="btn btn-primary" onclick="executePerformanceTest()">Start Performance Test</button>
+        </div>
+    </div>
+
+    <div id="fraudDetectionModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="close" onclick="closeModal('fraudDetectionModal')">&times;</span>
+                <h3>Fraud Detection Analysis</h3>
+            </div>
+            <div class="form-group">
+                <label for="fraudTableName">Table Name:</label>
+                <input type="text" id="fraudTableName" placeholder="Enter table name to analyze">
+            </div>
+            <div class="form-group">
+                <label for="fraudAnalysisMode">Analysis Mode:</label>
+                <select id="fraudAnalysisMode">
+                    <option value="quick">Quick - Fast basic checks</option>
+                    <option value="standard" selected>Standard - Comprehensive analysis</option>
+                    <option value="deep">Deep - Thorough investigation</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" onclick="executeFraudAnalysis()">Analyze for Fraud</button>
         </div>
     </div>
 
@@ -1633,10 +1673,308 @@
                         executeSampleData();
                     } else if (modalId === 'performanceModal') {
                         executePerformanceTest();
+                    } else if (modalId === 'fraudDetectionModal') {
+                        executeFraudAnalysis();
                     }
                 }
             }
         });
+
+        // Fraud Detection Functions
+        function testFraudDetection() {
+            showModal('fraudDetectionModal');
+        }
+
+        async function executeFraudAnalysis() {
+            const tableName = document.getElementById('fraudTableName').value.trim();
+            const analysisMode = document.getElementById('fraudAnalysisMode').value;
+
+            if (!tableName) {
+                alert('Please enter a table name');
+                return;
+            }
+
+            closeModal('fraudDetectionModal');
+            showLoading();
+            showResults();
+
+            try {
+                const response = await fetch(`${baseUrl}/api/v1/fraud/analyze?table_name=${encodeURIComponent(tableName)}&analysis_mode=${analysisMode}`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Fraud analysis failed');
+                }
+
+                const result = await response.json();
+
+                let html = `<h3>🛡️ Fraud Detection Analysis: ${tableName}</h3>`;
+
+                // Summary section
+                const summary = result.summary || {};
+                const riskClass = getRiskClass(summary.highest_risk_level || 'low');
+                const riskIcon = getRiskIcon(summary.highest_risk_level || 'low');
+
+                html += `
+                    <div class="alert alert-${riskClass}">
+                        <h4>${riskIcon} Analysis Summary</h4>
+                        <p><strong>Analysis Mode:</strong> ${result.analysis_mode || 'unknown'}</p>
+                        <p><strong>Scenarios Detected:</strong> ${summary.total_scenarios_detected || 0}</p>
+                        <p><strong>Highest Risk Level:</strong> ${summary.highest_risk_level || 'low'}</p>
+                        <p><strong>Detectors Run:</strong> ${summary.detectors_run || 0}</p>
+                        <p><strong>Detectors Failed:</strong> ${summary.detectors_failed || 0}</p>
+                        <p><strong>Processing Time:</strong> ${(result.processing_time || 0).toFixed(3)}s</p>
+                        <p><strong>Timestamp:</strong> ${new Date(result.timestamp).toLocaleString()}</p>
+                    </div>
+                `;
+
+                // Detection results by detector type
+                const detectionResults = result.detection_results || {};
+                html += '<h4>Detection Results by Category</h4>';
+
+                for (const [detectorName, detectorResult] of Object.entries(detectionResults)) {
+                    if (detectorResult) {
+                        html += displayDetectorResults(detectorName, detectorResult);
+                    } else {
+                        html += `
+                            <div class="alert alert-warning">
+                                <h5>${formatDetectorName(detectorName)}</h5>
+                                <p>⚠️ Detector failed to run</p>
+                            </div>
+                        `;
+                    }
+                }
+
+                hideLoading();
+                document.getElementById('resultsContent').innerHTML = html;
+
+            } catch (error) {
+                hideLoading();
+                showError('Fraud analysis failed', error.message);
+            }
+        }
+
+        function displayDetectorResults(detectorName, result) {
+            const scenarios = result.scenarios || [];
+            const detectorTitle = formatDetectorName(detectorName);
+
+            let html = `<div class="alert alert-info">`;
+            html += `<h5>${detectorTitle}</h5>`;
+
+            if (scenarios.length === 0) {
+                html += '<p>✅ No fraud patterns detected</p>';
+            } else {
+                html += `<p>Found ${scenarios.length} potential fraud scenario(s)</p>`;
+                html += '<div class="table-wrapper"><table class="table"><thead><tr>';
+                html += '<th>Pattern</th><th>Risk Level</th><th>Confidence</th><th>Description</th><th>Recommendation</th>';
+                html += '</tr></thead><tbody>';
+
+                scenarios.forEach(scenario => {
+                    const riskIcon = getRiskIcon(scenario.risk_level || 'low');
+                    const riskClass = getRiskClass(scenario.risk_level || 'low');
+
+                    html += `
+                        <tr>
+                            <td><strong>${scenario.pattern_name || 'Unknown'}</strong></td>
+                            <td><span class="alert-${riskClass}" style="padding: 4px 8px; border-radius: 4px; font-size: 12px;">${riskIcon} ${(scenario.risk_level || 'low').toUpperCase()}</span></td>
+                            <td>${((scenario.confidence || 0) * 100).toFixed(0)}%</td>
+                            <td title="${scenario.description || ''}">${truncateText(scenario.description || 'No description', 50)}</td>
+                            <td title="${scenario.recommendation || ''}">${truncateText(scenario.recommendation || 'No recommendation', 50)}</td>
+                        </tr>
+                    `;
+                });
+
+                html += '</tbody></table></div>';
+            }
+
+            html += '</div>';
+            return html;
+        }
+
+        async function getFraudScenarios() {
+            showLoading();
+            showResults();
+
+            try {
+                const response = await fetch(`${baseUrl}/api/v1/fraud/scenarios`);
+
+                if (!response.ok) {
+                    throw new Error('Failed to fetch fraud scenarios');
+                }
+
+                const result = await response.json();
+                const scenarios = result.scenarios || [];
+                const categories = result.categories || [];
+
+                let html = '<h3>📋 Fraud Detection Scenarios</h3>';
+
+                html += `
+                    <div class="alert alert-info">
+                        <p><strong>Total Scenarios:</strong> ${result.total_scenarios || 0}</p>
+                        <p><strong>Categories:</strong> ${categories.join(', ')}</p>
+                    </div>
+                `;
+
+                if (scenarios.length === 0) {
+                    html += '<div class="alert alert-warning">No fraud scenarios available</div>';
+                } else {
+                    // Group by category
+                    const scenariosByCategory = {};
+                    scenarios.forEach(scenario => {
+                        const category = scenario.category || 'Unknown';
+                        if (!scenariosByCategory[category]) {
+                            scenariosByCategory[category] = [];
+                        }
+                        scenariosByCategory[category].push(scenario);
+                    });
+
+                    // Display by category
+                    for (const [category, categoryScenarios] of Object.entries(scenariosByCategory)) {
+                        html += `<h4>${category}</h4>`;
+                        html += '<div class="table-wrapper"><table class="table"><thead><tr>';
+                        html += '<th>Pattern</th><th>Risk Level</th><th>Description</th><th>Detection Method</th>';
+                        html += '</tr></thead><tbody>';
+
+                        categoryScenarios.forEach(scenario => {
+                            const riskIcon = getRiskIcon(scenario.risk_level || 'low');
+                            const riskClass = getRiskClass(scenario.risk_level || 'low');
+
+                            html += `
+                                <tr>
+                                    <td><strong>${scenario.name || 'Unknown'}</strong></td>
+                                    <td><span class="alert-${riskClass}" style="padding: 4px 8px; border-radius: 4px; font-size: 12px;">${riskIcon} ${(scenario.risk_level || 'low').toUpperCase()}</span></td>
+                                    <td title="${scenario.description || ''}">${truncateText(scenario.description || '', 80)}</td>
+                                    <td>${scenario.detection_method || 'N/A'}</td>
+                                </tr>
+                            `;
+                        });
+
+                        html += '</tbody></table></div>';
+                    }
+                }
+
+                hideLoading();
+                document.getElementById('resultsContent').innerHTML = html;
+
+            } catch (error) {
+                hideLoading();
+                showError('Failed to get fraud scenarios', error.message);
+            }
+        }
+
+        async function testFraudHealth() {
+            showLoading();
+            showResults();
+
+            try {
+                const response = await fetch(`${baseUrl}/api/v1/fraud/health`);
+
+                if (!response.ok) {
+                    throw new Error('Fraud service health check failed');
+                }
+
+                const healthData = await response.json();
+
+                let html = '<h3>❤️ Fraud Detection Service Health</h3>';
+
+                const isHealthy = healthData.status === 'healthy';
+                const statusClass = isHealthy ? 'status-healthy' : 'status-unhealthy';
+                const alertClass = isHealthy ? 'alert-success' : 'alert-danger';
+
+                html += `
+                    <div class="alert ${alertClass}">
+                        <h4><span class="status-indicator ${statusClass}"></span>Service Status</h4>
+                        <p><strong>Status:</strong> ${healthData.status || 'unknown'}</p>
+                        <p><strong>Timestamp:</strong> ${new Date(healthData.timestamp).toLocaleString()}</p>
+                    </div>
+                `;
+
+                // Detectors status
+                const detectors = healthData.detectors || {};
+                if (Object.keys(detectors).length > 0) {
+                    html += '<h4>Fraud Detectors</h4>';
+                    html += '<div class="table-wrapper"><table class="table"><thead><tr>';
+                    html += '<th>Detector</th><th>Status</th>';
+                    html += '</tr></thead><tbody>';
+
+                    for (const [detectorName, status] of Object.entries(detectors)) {
+                        const isAvailable = status === 'available';
+                        const detectorStatusClass = isAvailable ? 'status-healthy' : 'status-unhealthy';
+
+                        html += `
+                            <tr>
+                                <td><strong>${formatDetectorName(detectorName)}</strong></td>
+                                <td><span class="status-indicator ${detectorStatusClass}"></span>${status}</td>
+                            </tr>
+                        `;
+                    }
+
+                    html += '</tbody></table></div>';
+                }
+
+                // Configuration
+                const config = healthData.config || {};
+                if (Object.keys(config).length > 0) {
+                    html += `
+                        <h4>Configuration</h4>
+                        <div class="alert alert-info">
+                            <p><strong>Enabled:</strong> ${config.enabled ? 'Yes' : 'No'}</p>
+                            <p><strong>Analysis Mode:</strong> ${config.analysis_mode || 'unknown'}</p>
+                            <p><strong>Timeout:</strong> ${config.timeout || 0}s</p>
+                            <p><strong>Confidence Threshold:</strong> ${((config.confidence_threshold || 0) * 100).toFixed(0)}%</p>
+                            <p><strong>Risk Level Threshold:</strong> ${config.risk_threshold || 'medium'}</p>
+                        </div>
+                    `;
+                }
+
+                hideLoading();
+                document.getElementById('resultsContent').innerHTML = html;
+
+            } catch (error) {
+                hideLoading();
+                showError('Fraud service health check failed', error.message);
+            }
+        }
+
+        // Fraud helper functions
+        function formatDetectorName(name) {
+            const nameMap = {
+                'transaction': '💳 Transaction Fraud',
+                'schema': '🔒 Schema Vulnerability',
+                'temporal': '⏰ Temporal Anomaly',
+                'statistical': '📊 Statistical Anomaly',
+                'relationship': '🔗 Relationship Integrity'
+            };
+            return nameMap[name] || name.charAt(0).toUpperCase() + name.slice(1);
+        }
+
+        function getRiskIcon(riskLevel) {
+            const icons = {
+                'low': '🟢',
+                'medium': '🟡',
+                'high': '🟠',
+                'critical': '🔴'
+            };
+            return icons[riskLevel.toLowerCase()] || '⚪';
+        }
+
+        function getRiskClass(riskLevel) {
+            const classes = {
+                'low': 'info',
+                'medium': 'warning',
+                'high': 'warning',
+                'critical': 'danger'
+            };
+            return classes[riskLevel.toLowerCase()] || 'info';
+        }
+
+        function truncateText(text, maxLength) {
+            if (!text) return '';
+            if (text.length <= maxLength) return text;
+            return text.substring(0, maxLength - 3) + '...';
+        }
     </script>
 </body>
 </html>
