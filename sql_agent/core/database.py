@@ -83,6 +83,15 @@ class DatabaseManager:
             "enable_llm_intelligence": True,  # NEW: LLM intelligence toggle
             "llm_fallback_enabled": True      # NEW: Graceful degradation
         }
+
+        # Fraud detection query tracking
+        self._fraud_query_log: List[Dict[str, Any]] = []
+        self._fraud_query_stats = {
+            "total_fraud_queries": 0,
+            "successful_detections": 0,
+            "failed_detections": 0,
+            "avg_detection_time": 0.0
+        }
     
     async def initialize(self) -> None:
         """Initialize database connection with LLM intelligence."""
@@ -1169,6 +1178,56 @@ class DatabaseManager:
         
         except SQLAlchemyError as e:
             raise RuntimeError(f"SQL execution failed: {e}")
+
+    def log_fraud_query(
+        self,
+        table_name: str,
+        detector_type: str,
+        scenarios_found: int,
+        execution_time: float,
+        success: bool = True
+    ) -> None:
+        """Log fraud detection query for audit trail and analytics."""
+        try:
+            log_entry = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "table_name": table_name,
+                "detector_type": detector_type,
+                "scenarios_found": scenarios_found,
+                "execution_time": execution_time,
+                "success": success
+            }
+
+            self._fraud_query_log.append(log_entry)
+
+            # Update statistics
+            self._fraud_query_stats["total_fraud_queries"] += 1
+            if success:
+                self._fraud_query_stats["successful_detections"] += 1
+            else:
+                self._fraud_query_stats["failed_detections"] += 1
+
+            # Update average detection time
+            total = self._fraud_query_stats["total_fraud_queries"]
+            current_avg = self._fraud_query_stats["avg_detection_time"]
+            self._fraud_query_stats["avg_detection_time"] = (
+                (current_avg * (total - 1) + execution_time) / total
+            )
+
+            # Keep only last 1000 entries
+            if len(self._fraud_query_log) > 1000:
+                self._fraud_query_log.pop(0)
+
+        except Exception as e:
+            # Don't fail on logging errors
+            pass
+
+    def get_fraud_query_stats(self) -> Dict[str, Any]:
+        """Get fraud detection query statistics."""
+        return {
+            **self._fraud_query_stats,
+            "recent_queries": self._fraud_query_log[-10:] if self._fraud_query_log else []
+        }
 
 
 # Global database manager instance

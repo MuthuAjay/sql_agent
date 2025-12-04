@@ -39,8 +39,31 @@ class BaseAgent(ABC):
             session_id=state.session_id,
             has_errors=state.has_errors(),
             error_count=len(state.errors),
+            has_fraud_analysis=state.fraud_analysis_result is not None,
         )
+
+        # Log fraud detection results if present
+        if state.fraud_analysis_result:
+            self._log_fraud_detection(state)
+
         return state
+
+    def _log_fraud_detection(self, state: AgentState) -> None:
+        """Log fraud detection results for audit trail."""
+        try:
+            fraud_result = state.fraud_analysis_result
+            if fraud_result and isinstance(fraud_result, dict):
+                scenarios = fraud_result.get('scenarios', [])
+                self.logger.info(
+                    "fraud_detection_logged",
+                    agent=self.name,
+                    session_id=state.session_id,
+                    scenarios_detected=len(scenarios),
+                    fraud_categories=[s.get('category') for s in scenarios if s.get('category')],
+                    highest_risk=max([s.get('risk_level', 'low') for s in scenarios], default='low'),
+                )
+        except Exception as e:
+            self.logger.warning("Failed to log fraud detection", error=str(e))
     
     async def run(self, state: AgentState) -> AgentState:
         """Run the agent with pre and post processing."""
