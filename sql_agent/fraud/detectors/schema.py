@@ -119,7 +119,7 @@ class SchemaVulnerabilityDetector:
                     affected_columns=[],
                     affected_tables=[table_name],
                     remediation=f"Add {field_type} column to track data lineage and changes",
-                    sql_fix=f"ALTER TABLE {table_name} ADD COLUMN {field_type} {'TIMESTAMP' if 'at' in field_type else 'VARCHAR(100)'} NOT NULL DEFAULT {'CURRENT_TIMESTAMP' if 'at' in field_type else \"'system'\"};",
+                    sql_fix=f"""ALTER TABLE {table_name} ADD COLUMN {field_type} {'TIMESTAMP' if 'at' in field_type else 'VARCHAR(100)'} NOT NULL DEFAULT {'CURRENT_TIMESTAMP' if 'at' in field_type else 'system'};""",
                     exploitability="High - impossible to track who made changes or when, enabling untraceable fraud"
                 ))
 

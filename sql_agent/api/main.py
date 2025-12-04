@@ -18,10 +18,9 @@ import structlog
 from sql_agent.core.config import settings
 from sql_agent.core.database import db_manager
 from sql_agent.agents.orchestrator import AgentOrchestrator
-from sql_agent.mcp.server import mcp_server as mcp_fastapi_app
 from sql_agent.api.dependencies import set_global_instances, set_fraud_instances
 from sql_agent.api.models import HealthCheckResponse, ErrorResponse
-from .routes import query, sql, analysis, viz, schema
+from .routes import query, sql, schema
 
 # Import fraud detection components
 try:
@@ -255,8 +254,6 @@ app = FastAPI(
     },
 )
 
-# Mount the FastMCP application
-app.mount("/mcp", mcp_fastapi_app)
 
 # CORS Configuration
 allowed_origins = [
@@ -415,11 +412,8 @@ async def health_check() -> HealthCheckResponse:
 
     # Check MCP server
     try:
-        if mcp_fastapi_app:
-            health_status["services"]["mcp_server"] = "initialized"
-        else:
-            health_status["services"]["mcp_server"] = "not_initialized"
-            health_status["status"] = "degraded"
+        health_status["services"]["mcp_server"] = "not_initialized"
+        health_status["status"] = "degraded"
     except Exception as e:
         health_status["services"]["mcp_server"] = f"unhealthy: {str(e)}"
         health_status["status"] = "degraded"
@@ -500,19 +494,7 @@ app.include_router(
     responses={400: {"description": "Invalid SQL"}},
 )
 
-app.include_router(
-    analysis.router,
-    prefix="/api/v1/analysis",
-    tags=["Data Analysis"],
-    responses={400: {"description": "Analysis failed"}},
-)
 
-app.include_router(
-    viz.router,
-    prefix="/api/v1/visualization",
-    tags=["Data Visualization"],
-    responses={400: {"description": "Visualization failed"}},
-)
 
 app.include_router(
     schema.router,
@@ -546,7 +528,7 @@ async def get_status():
         "uptime": time.time() - start_time if "start_time" in globals() else None,
         "database_connected": database_manager is not None,
         "orchestrator_available": orchestrator is not None,
-        "mcp_server_mounted": mcp_fastapi_app is not None,
+        "mcp_server_mounted": None,
     }
 
 

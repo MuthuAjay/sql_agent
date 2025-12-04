@@ -3,8 +3,6 @@
 from .base import BaseAgent
 from .router import RouterAgent
 from .sql import SQLAgent
-from .analysis import AnalysisAgent
-from .viz import VisualizationAgent
 from .orchestrator import AgentOrchestrator
 
 # Use enhanced router by default, fallback to original if needed
@@ -17,8 +15,6 @@ __all__ = [
     "EnhancedRouterAgent", 
     "DefaultRouterAgent",
     "SQLAgent",
-    "AnalysisAgent",
-    "VisualizationAgent",
     "AgentOrchestrator",
 ]
 
