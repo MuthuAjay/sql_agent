@@ -648,12 +648,12 @@ Respond in JSON format:
         }
     
     async def _enrich_context_for_agents(
-        self, 
-        selected_tables: List[str], 
+        self,
+        selected_tables: List[str],
         schema_context: List[SchemaContext],
         database_name: str
     ) -> Dict[str, Any]:
-        """Enrich context with additional information for downstream agents."""
+        """Enrich context with additional information for downstream agents using cached data."""
         try:
             enriched_context = {
                 "selected_tables": selected_tables,
@@ -661,7 +661,7 @@ Respond in JSON format:
                 "schema_contexts": schema_context,
                 "database_name": database_name
             }
-            
+
             # Add relationship insights if multiple tables
             if len(selected_tables) > 1:
                 try:
@@ -672,17 +672,63 @@ Respond in JSON format:
                     enriched_context["relationships"] = relationship_insights
                 except Exception as e:
                     self.logger.warning("relationship_insights_failed", error=str(e))
-            
-            # Add column context for detailed SQL generation with data types, statistics, and sample data
+
+            # PERFORMANCE FIX: Use enriched cache instead of re-computing statistics
             if selected_tables:
-                print(f"\n[ENRICH] Starting column context enrichment for {len(selected_tables)} tables")
+                print(f"\n[ENRICH] Starting column context enrichment for {len(selected_tables)} tables (using cache)")
                 try:
+                    from sql_agent.api.dependencies import get_enriched_cache
                     from sql_agent.core.database import db_manager
 
-                    # Get comprehensive column statistics and metadata
+                    # Try to get enriched cache
+                    enriched_cache = None
+                    try:
+                        enriched_cache = get_enriched_cache()
+                        print(f"[ENRICH] Enriched cache available")
+                    except Exception:
+                        print(f"[ENRICH] Enriched cache not available, falling back to direct DB queries")
+
                     column_contexts = {}
-                    for table_name in selected_tables[:3]:  # Limit to top 3 tables
-                        print(f"\n[ENRICH] Processing table: {table_name}")
+
+                    # If cache available, try to use it first
+                    if enriched_cache:
+                        try:
+                            enriched_schema = await enriched_cache.get_enriched_schema(database_name)
+                            if enriched_schema:
+                                print(f"[ENRICH] ✓ Got enriched schema from cache with {len(enriched_schema.tables)} tables")
+
+                                # Extract column contexts from cached schema
+                                for table in enriched_schema.tables:
+                                    if table.table_name in selected_tables[:3]:  # Limit to top 3 tables
+                                        print(f"[ENRICH] ✓ Using cached data for table: {table.table_name}")
+                                        enriched_columns = [col.to_dict() for col in table.columns]
+                                        column_contexts[table.table_name] = enriched_columns
+                                        print(f"[ENRICH]   Loaded {len(enriched_columns)} columns from cache")
+                                        self.logger.info("column_context_from_cache",
+                                                       table=table.table_name,
+                                                       column_count=len(enriched_columns))
+
+                                # If we got all tables from cache, we're done!
+                                if len(column_contexts) == len(selected_tables[:3]):
+                                    print(f"[ENRICH] ✓ All tables loaded from cache - FAST PATH")
+                                    enriched_context["column_contexts"] = column_contexts
+                                    enriched_context["cache_hit"] = True
+                                    return enriched_context
+                                else:
+                                    print(f"[ENRICH] Partial cache hit ({len(column_contexts)}/{len(selected_tables[:3])} tables)")
+                            else:
+                                print(f"[ENRICH] ✗ No enriched schema in cache for database: {database_name}")
+                        except Exception as cache_err:
+                            print(f"[ENRICH] Cache lookup failed: {cache_err}")
+                            self.logger.warning("enriched_cache_lookup_failed", error=str(cache_err))
+
+                    # FALLBACK: If cache miss or unavailable, fetch from database (slower path)
+                    print(f"[ENRICH] Cache miss - fetching from database (slower)")
+                    for table_name in selected_tables[:3]:
+                        if table_name in column_contexts:
+                            continue  # Already got from cache
+
+                        print(f"\n[ENRICH] Fetching table from DB: {table_name}")
                         enriched_columns = []
 
                         try:
@@ -792,10 +838,12 @@ Respond in JSON format:
                     print(f"\n[ENRICH] Final column_contexts has {len(column_contexts)} tables")
                     if column_contexts:
                         enriched_context["column_contexts"] = column_contexts
+                        enriched_context["cache_hit"] = False  # Had to fetch from DB
                         print(f"[ENRICH] Successfully added column_contexts to enriched_context")
                         self.logger.info("enriched_context_created",
                                        tables=list(column_contexts.keys()),
-                                       total_columns=sum(len(cols) for cols in column_contexts.values()))
+                                       total_columns=sum(len(cols) for cols in column_contexts.values()),
+                                       cache_hit=False)
                     else:
                         print(f"[ENRICH] WARNING: No column_contexts created for any table!")
                         self.logger.warning("no_column_contexts_created",
@@ -803,9 +851,9 @@ Respond in JSON format:
 
                 except Exception as e:
                     self.logger.error("column_context_enrichment_failed", error=str(e), exc_info=True)
-            
+
             return enriched_context
-            
+
         except Exception as e:
             self.logger.error("context_enrichment_failed", error=str(e))
             return {

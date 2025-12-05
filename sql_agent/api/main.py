@@ -18,7 +18,7 @@ import structlog
 from sql_agent.core.config import settings
 from sql_agent.core.database import db_manager
 from sql_agent.agents.orchestrator import AgentOrchestrator
-from sql_agent.api.dependencies import set_global_instances, set_fraud_instances
+from sql_agent.api.dependencies import set_global_instances, set_fraud_instances, set_schema_cache_instances
 from sql_agent.api.models import HealthCheckResponse, ErrorResponse
 from .routes import query, sql, schema
 
@@ -43,6 +43,9 @@ database_manager = None
 orchestrator = None
 fraud_detectors = None
 fraud_report_generator = None
+enriched_cache = None
+enrichment_service = None
+schema_processor = None
 
 """
 RAG Initialization Fix
@@ -101,12 +104,43 @@ async def initialize_fraud_detectors():
         logger.warning(f"Fraud detection initialization failed (will use fallback): {e}")
         return None, None
 
+async def initialize_enriched_cache():
+    """Initialize enriched schema cache components."""
+    try:
+        from sql_agent.cache.enriched_schema_cache import EnrichedSchemaCache
+        from sql_agent.services.schema_enrichment import SchemaEnrichmentService
+        from sql_agent.rag.schema import schema_processor as sp
+
+        logger.info("Initializing enriched schema cache...")
+
+        # Initialize cache
+        cache = EnrichedSchemaCache(
+            cache_dir="./cache",
+            default_ttl_days=7,
+            max_size_mb=2048
+        )
+        await cache.initialize()
+
+        # Initialize enrichment service
+        service = SchemaEnrichmentService(
+            db_manager=database_manager,
+            schema_processor=sp,
+            schema_analyzer=None  # Optional - can be added later
+        )
+
+        logger.info("Enriched schema cache initialized successfully")
+        return cache, service, sp
+
+    except Exception as e:
+        logger.warning(f"Enriched schema cache initialization failed: {e}")
+        return None, None, None
+
 # Modify your lifespan function in main.py:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown."""
-    global database_manager, orchestrator, fraud_detectors, fraud_report_generator
+    global database_manager, orchestrator, fraud_detectors, fraud_report_generator, enriched_cache, enrichment_service, schema_processor
 
     # Startup
     logger.info("Starting SQL Agent API")
@@ -141,6 +175,14 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("Fraud detection components unavailable")
 
+        # ADDED: Initialize enriched schema cache
+        enriched_cache, enrichment_service, schema_processor = await initialize_enriched_cache()
+        if enriched_cache:
+            set_schema_cache_instances(enriched_cache, enrichment_service, schema_processor)
+            logger.info("Enriched schema cache initialized successfully")
+        else:
+            logger.info("Enriched schema cache unavailable")
+
         # Set global instances for dependency injection
         set_global_instances(database_manager, orchestrator)
         logger.info("Dependencies configured")
@@ -169,6 +211,14 @@ async def lifespan(app: FastAPI):
             logger.info("RAG components cleaned up")
         except Exception as e:
             logger.warning(f"Error during RAG cleanup: {e}")
+
+        # ADDED: Cleanup enriched schema cache
+        if enriched_cache:
+            try:
+                await enriched_cache.close()
+                logger.info("Enriched schema cache closed")
+            except Exception as e:
+                logger.warning(f"Error during enriched cache cleanup: {e}")
 
         if database_manager:
             try:

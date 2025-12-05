@@ -1020,13 +1020,15 @@ DISCOVER (JSON format):
             )
 
             # Create business keywords string for search
+            # FIX: Ensure all items are strings before joining
+            business_keywords_list = [
+                *context.business_processes,
+                *context.user_personas,
+                context.business_role,
+                context.criticality_assessment,
+            ]
             business_keywords_str = ",".join(
-                [
-                    *context.business_processes,
-                    *context.user_personas,
-                    context.business_role,
-                    context.criticality_assessment,
-                ]
+                str(item) for item in business_keywords_list if item
             )
 
             vector_data["table_contexts"][table_name] = {
@@ -1106,14 +1108,16 @@ DISCOVER (JSON format):
                     )
 
                     # Add business keywords for search (string format)
+                    # FIX: Ensure all items are strings before joining
                     business_keywords = [
                         *context.business_processes,
                         *context.user_personas,
                         context.business_role,
                         context.criticality_assessment,
                     ]
+                    # Convert all items to strings and filter out None/empty values
                     table["business_keywords_str"] = ",".join(
-                        filter(None, business_keywords)
+                        str(item) for item in business_keywords if item
                     )
 
                     # Also keep array versions for API compatibility

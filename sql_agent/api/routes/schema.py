@@ -398,22 +398,26 @@ async def get_sample_data(
 ) -> Dict[str, Any]:
     """
     Get sample data from a table.
-    
+
     This endpoint returns sample data from the specified table
     with the specified limit.
     """
     try:
         # Get sample data from database manager
         sample_data = await database_manager.get_sample_data(table_name, limit)
-        
+
+        # FIX: database_manager.get_sample_data returns {"columns": [...], "data": [...]}
+        # Return it directly with metadata
         return {
             "table_name": table_name,
             "database_name": database_name or "default",
-            "data": sample_data,
+            "columns": sample_data.get("columns", []),
+            "data": sample_data.get("data", []),  # FIX: Use "data" not "rows"
+            "rows": sample_data.get("data", []),  # Include "rows" for backward compatibility
             "limit": limit,
-            "total_returned": len(sample_data.get("rows", []))
+            "total_returned": len(sample_data.get("data", []))
         }
-        
+
     except Exception as e:
         logger.error("Failed to get sample data", table_name=table_name, error=str(e), exc_info=True)
         raise HTTPException(
@@ -500,6 +504,15 @@ async def api_get_sample_data(database_id: str, table_name: str, limit: int = 5,
     """
     try:
         sample_data = await database_manager.get_sample_data(table_name, limit)
+        # FIX: Ensure we return the correct format with columns and data
+        # database_manager.get_sample_data returns {"columns": [...], "data": [...]}
+        if not sample_data:
+            return {"columns": [], "data": [], "rows": []}
+
+        # Add "rows" alias for frontend compatibility
+        if "data" in sample_data and "rows" not in sample_data:
+            sample_data["rows"] = sample_data["data"]
+
         return sample_data
     except Exception as e:
         logger.error("Failed to fetch sample data", database_id=database_id, table_name=table_name, error=str(e), exc_info=True)
@@ -636,3 +649,237 @@ async def get_extraction_stats(database_manager = Depends(get_database)) -> Dict
     except Exception as e:
         logger.error("Failed to get extraction stats", error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to get extraction stats: {str(e)}")
+
+
+# Enriched Schema Cache Endpoints
+
+@router.post("/enrich_cache", response_model=Dict[str, Any])
+async def warm_enriched_cache(
+    database_name: Optional[str] = None,
+    force: bool = False,
+    database_manager = Depends(get_database)
+) -> Dict[str, Any]:
+    """
+    Enrich and cache complete database schema with all statistics, samples, and business intelligence.
+
+    This endpoint performs a comprehensive schema enrichment including:
+    - Column statistics (count, distinct, min/max/avg, sample values)
+    - Business domains and contexts from LLM
+    - Table relationships
+    - Sample data
+
+    The enriched schema is cached for fast query routing without re-querying on every query.
+
+    Args:
+        database_name: Database to enrich (optional, uses default if not provided)
+        force: Force re-enrichment even if cached (default: False)
+
+    Returns:
+        Enrichment status with timing and cached table count
+    """
+    try:
+        from sql_agent.api.dependencies import get_enriched_cache, get_enrichment_service
+
+        enriched_cache = get_enriched_cache()
+        enrichment_service = get_enrichment_service()
+
+        db_name = database_name or "default"
+
+        # Check if already cached
+        if not force:
+            cached = await enriched_cache.get_enriched_schema(db_name)
+            if cached:
+                logger.info("Schema already cached, returning cached info", database_name=db_name)
+                return {
+                    "status": "already_cached",
+                    "database_name": db_name,
+                    "table_count": len(cached.tables),
+                    "cached_at": cached.enriched_at.isoformat() if cached.enriched_at else None,
+                    "message": "Schema is already cached. Use force=true to re-enrich."
+                }
+
+        logger.info("Starting schema enrichment and cache warming", database_name=db_name, force=force)
+        start_time = time.time()
+
+        # Enrich the full schema
+        enriched_schema = await enrichment_service.enrich_full_schema(
+            database_name=db_name,
+            include_sample_data=True,
+            max_concurrent_tables=5
+        )
+
+        if not enriched_schema:
+            raise HTTPException(
+                status_code=500,
+                detail="Schema enrichment failed - enrichment service returned None"
+            )
+
+        # Cache the enriched schema
+        cache_success = await enriched_cache.set_enriched_schema(enriched_schema)
+
+        if not cache_success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to cache enriched schema"
+            )
+
+        duration = time.time() - start_time
+
+        logger.info("Schema enrichment completed successfully",
+                   database_name=db_name,
+                   duration_seconds=duration,
+                   table_count=len(enriched_schema.tables))
+
+        return {
+            "status": "success",
+            "database_name": db_name,
+            "table_count": len(enriched_schema.tables),
+            "duration_seconds": round(duration, 2),
+            "enriched_at": enriched_schema.enriched_at.isoformat() if enriched_schema.enriched_at else None,
+            "business_purpose": enriched_schema.business_purpose,
+            "industry_domain": enriched_schema.industry_domain,
+            "message": f"Successfully enriched and cached {len(enriched_schema.tables)} tables"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to warm enriched cache", error=str(e), exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to warm enriched cache: {str(e)}"
+        )
+
+
+@router.get("/enriched_cache/status", response_model=Dict[str, Any])
+async def get_enriched_cache_status(
+    database_name: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Get status of enriched schema cache.
+
+    Returns information about what's cached, cache age, and cache statistics.
+    """
+    try:
+        from sql_agent.api.dependencies import get_enriched_cache
+
+        enriched_cache = get_enriched_cache()
+        db_name = database_name or "default"
+
+        # Get schema info
+        schema_info = await enriched_cache.get_schema_info(db_name)
+
+        # Get cache stats
+        cache_stats = await enriched_cache.get_cache_stats()
+
+        if schema_info:
+            return {
+                "database_name": db_name,
+                "is_cached": True,
+                "schema_info": schema_info,
+                "cache_stats": cache_stats,
+                "timestamp": int(time.time())
+            }
+        else:
+            return {
+                "database_name": db_name,
+                "is_cached": False,
+                "message": "Schema not cached. Use POST /api/schema/enrich_cache to warm the cache.",
+                "cache_stats": cache_stats,
+                "timestamp": int(time.time())
+            }
+
+    except Exception as e:
+        logger.error("Failed to get enriched cache status", error=str(e), exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get enriched cache status: {str(e)}"
+        )
+
+
+@router.get("/enriched_cache/schema", response_model=Dict[str, Any])
+async def get_cached_enriched_schema(
+    database_name: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Get the full enriched schema from cache.
+
+    Returns the complete enriched schema including all column statistics,
+    sample values, business intelligence, and relationships.
+    """
+    try:
+        from sql_agent.api.dependencies import get_enriched_cache
+
+        enriched_cache = get_enriched_cache()
+        db_name = database_name or "default"
+
+        enriched_schema = await enriched_cache.get_enriched_schema(db_name)
+
+        if not enriched_schema:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No enriched schema cached for database '{db_name}'. Use POST /api/schema/enrich_cache to warm the cache."
+            )
+
+        # Convert to dictionary for JSON response
+        return {
+            "database_name": enriched_schema.database_name,
+            "tables": [table.to_dict() for table in enriched_schema.tables],
+            "business_purpose": enriched_schema.business_purpose,
+            "industry_domain": enriched_schema.industry_domain,
+            "discovered_domains": enriched_schema.discovered_domains,
+            "relationships": enriched_schema.relationships,
+            "enriched_at": enriched_schema.enriched_at.isoformat() if enriched_schema.enriched_at else None,
+            "version": enriched_schema.version,
+            "timestamp": int(time.time())
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get cached enriched schema", error=str(e), exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get cached enriched schema: {str(e)}"
+        )
+
+
+@router.delete("/enriched_cache", response_model=Dict[str, Any])
+async def invalidate_enriched_cache(
+    database_name: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Invalidate (delete) the enriched schema cache.
+
+    Use this endpoint when the database schema has changed and you want to
+    force a fresh enrichment on the next query or manual cache warm.
+    """
+    try:
+        from sql_agent.api.dependencies import get_enriched_cache
+
+        enriched_cache = get_enriched_cache()
+        db_name = database_name or "default"
+
+        success = await enriched_cache.invalidate_schema(db_name)
+
+        if success:
+            return {
+                "status": "success",
+                "database_name": db_name,
+                "message": f"Enriched cache invalidated for database '{db_name}'",
+                "timestamp": int(time.time())
+            }
+        else:
+            return {
+                "status": "not_found",
+                "database_name": db_name,
+                "message": f"No cached schema found for database '{db_name}'",
+                "timestamp": int(time.time())
+            }
+
+    except Exception as e:
+        logger.error("Failed to invalidate enriched cache", error=str(e), exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to invalidate enriched cache: {str(e)}"
+        )
