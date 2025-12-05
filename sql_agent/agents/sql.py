@@ -51,12 +51,16 @@ class SQLAgent(BaseAgent):
         try:
             # Use schema context from router (Phase 2 enhancement)
             schema_context = self._get_schema_context_from_state(state)
+
+            print("Schema Context:", schema_context)  # Debug print for schema context
             
             # FIXED: Enhanced SQL generation with better error handling
             generated_sql = await self._generate_sql_with_enhanced_error_handling(
                 state.query, schema_context, state.metadata
             )
             
+            print("Generated SQL:", generated_sql)  # Debug print for generated SQL
+
             if not generated_sql:
                 error_msg = "Failed to generate SQL query - LLM response parsing failed"
                 self.logger.error("sql_generation_completely_failed", 
@@ -213,13 +217,29 @@ class SQLAgent(BaseAgent):
             selected_tables = schema_context.get("selected_tables", [])
             enriched_context = schema_context.get("enriched_context", {})
             business_domains = schema_context.get("business_domains", [])
-            
+
+            print(f"\n{'='*80}")
+            print(f"DEBUG SQL AGENT - Received schema context:")
+            print(f"  Selected tables: {selected_tables}")
+            print(f"  Enriched context keys: {enriched_context.keys() if enriched_context else 'None'}")
+            print(f"  Has column_contexts: {'column_contexts' in enriched_context if enriched_context else False}")
+            if enriched_context and 'column_contexts' in enriched_context:
+                print(f"  Column contexts tables: {list(enriched_context['column_contexts'].keys())}")
+                for table, cols in enriched_context['column_contexts'].items():
+                    print(f"    Table '{table}': {len(cols)} columns")
+            print(f"{'='*80}\n")
+
             self.logger.debug("building_schema_prompt",
                             selected_tables=selected_tables,
                             has_enriched_context=bool(enriched_context))
-            
+
             # Build schema information string
             schema_info = self._build_schema_info_string(selected_tables, enriched_context)
+
+            print(f"\n{'='*80}")
+            print(f"DEBUG SQL AGENT - Built schema info:")
+            print(schema_info)
+            print(f"{'='*80}\n")
 
             # Log the schema info being sent to LLM for debugging
             self.logger.info("schema_info_for_llm",
@@ -247,9 +267,14 @@ SQL Generation Rules:
 7. Use aggregate functions (COUNT, SUM, AVG) appropriately
 8. Return ONLY the SQL query, no explanations or markdown
 9. If a column name has no underscore (like "isfraud"), use it exactly as shown, do NOT add underscores
+10. CRITICAL: For columns with data type 'smallint' that represent boolean values (with min=0, max=1):
+    - Use numeric comparison: column = 1 for true, column = 0 for false
+    - Do NOT use TRUE/FALSE keywords for smallint columns
+    - Example: For isfraud (smallint), use "WHERE isfraud = 1" NOT "WHERE isfraud = TRUE"
 
 IMPORTANT: Return ONLY the executable SQL query without any formatting, explanations, or markdown.
-CRITICAL: Use EXACT column names from the schema - do not convert snake_case, do not add/remove underscores."""
+CRITICAL: Use EXACT column names from the schema - do not convert snake_case, do not add/remove underscores.
+CRITICAL: Check the data type in the schema - if it's smallint with values 0/1, use = 1 or = 0, NOT TRUE/FALSE."""
 
             human_prompt = f"Generate SQL for: {query}"
 
@@ -415,7 +440,7 @@ CRITICAL: Use EXACT column names from the schema - do not convert snake_case, do
             return ""
     
     def _build_schema_info_string(self, selected_tables: List[str], enriched_context: Dict[str, Any]) -> str:
-        """Build comprehensive schema information including data types and sample data for better SQL generation."""
+        """Build comprehensive schema information including data types, statistics, and sample data for better SQL generation."""
         if not selected_tables:
             return "No specific tables selected - use best judgment"
 
@@ -423,16 +448,16 @@ CRITICAL: Use EXACT column names from the schema - do not convert snake_case, do
         column_contexts = enriched_context.get("column_contexts", {})
         relationships = enriched_context.get("relationships", {})
 
-        # Add detailed table and column information with data types and samples
+        # Add detailed table and column information with data types, statistics, and samples
         for table_name in selected_tables:
             table_info = [f"Table: {table_name}"]
 
-            # Add column information with data types if available
+            # Add column information with comprehensive metadata if available
             if table_name in column_contexts:
                 columns = column_contexts[table_name]
                 column_details = []
 
-                for col in columns[:15]:  # Limit to 15 columns for context window
+                for col in columns[:20]:  # Limit to 20 columns for context window
                     col_name = col.get("column_name", "")
                     col_type = col.get("data_type", "unknown")
                     is_nullable = col.get("nullable", True)
@@ -440,10 +465,17 @@ CRITICAL: Use EXACT column names from the schema - do not convert snake_case, do
                     is_fk = col.get("foreign_key", False)
                     sample_values = col.get("sample_values", [])
 
+                    # Statistics
+                    min_val = col.get("min_value")
+                    max_val = col.get("max_value")
+                    avg_val = col.get("avg_value")
+                    distinct_count = col.get("distinct_count")
+                    total_count = col.get("total_count")
+
                     if not col_name:
                         continue
 
-                    # Build column description
+                    # Build column description with EXACT column name
                     col_desc = f"{col_name} ({col_type})"
 
                     # Add constraints
@@ -462,10 +494,22 @@ CRITICAL: Use EXACT column names from the schema - do not convert snake_case, do
                     if constraints:
                         col_desc += f" [{', '.join(constraints)}]"
 
+                    # Add statistics for numeric/date columns
+                    stats_parts = []
+                    if min_val is not None and max_val is not None:
+                        stats_parts.append(f"range: {min_val} to {max_val}")
+                    if avg_val is not None:
+                        stats_parts.append(f"avg: {avg_val:.2f}")
+                    if distinct_count is not None and total_count is not None:
+                        stats_parts.append(f"{distinct_count} distinct values out of {total_count}")
+
+                    if stats_parts:
+                        col_desc += f" | " + ", ".join(stats_parts)
+
                     # Add sample values if available (very helpful for LLM understanding)
                     if sample_values:
                         # Format sample values nicely
-                        sample_str = ", ".join([str(v) for v in sample_values[:3]])
+                        sample_str = ", ".join([str(v) for v in sample_values[:5]])
                         col_desc += f" — examples: {sample_str}"
 
                     column_details.append(col_desc)
@@ -474,6 +518,8 @@ CRITICAL: Use EXACT column names from the schema - do not convert snake_case, do
                     table_info.append(f"  Columns:")
                     for detail in column_details:
                         table_info.append(f"    - {detail}")
+                else:
+                    table_info.append(f"  (No column metadata available - use default column names)")
 
             schema_parts.append("\n".join(table_info))
 

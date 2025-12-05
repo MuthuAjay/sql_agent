@@ -286,17 +286,132 @@ class DatabaseManager:
         """Get sample data from a table."""
         if not self._async_engine:
             raise RuntimeError("Async engine is not initialized.")
-        
+
         async with self._async_engine.begin() as conn:
             sql = f"SELECT * FROM {table_name} LIMIT {limit}"
             result = await conn.execute(text(sql))
             rows = result.fetchall()
             columns = result.keys()
-            
+
             return {
                 "columns": list(columns),
-                "rows": [list(row) for row in rows]
+                "data": [list(row) for row in rows]
             }
+
+    async def get_column_statistics(self, table_name: str) -> Dict[str, Any]:
+        """Get comprehensive statistics for all columns in a table including min, max, count, and distinct values."""
+        if not self._async_engine:
+            raise RuntimeError("Async engine is not initialized.")
+
+        try:
+            async with self._async_engine.begin() as conn:
+                # Get column metadata first
+                columns_query = text("""
+                    SELECT
+                        column_name,
+                        data_type,
+                        is_nullable,
+                        character_maximum_length,
+                        numeric_precision,
+                        numeric_scale
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = :table_name
+                    ORDER BY ordinal_position
+                """)
+
+                columns_result = await conn.execute(columns_query, {"table_name": table_name})
+                columns = columns_result.fetchall()
+
+                column_stats = {}
+
+                # For each column, get statistics based on data type
+                for col in columns:
+                    col_name = col[0]
+                    col_type = col[1].lower()
+                    is_nullable = col[2] == 'YES'
+
+                    try:
+                        # Base statistics for all columns
+                        stats_query = text(f"""
+                            SELECT
+                                COUNT(*) as total_count,
+                                COUNT(DISTINCT "{col_name}") as distinct_count,
+                                COUNT("{col_name}") as non_null_count
+                            FROM {table_name}
+                        """)
+
+                        stats_result = await conn.execute(stats_query)
+                        stats = stats_result.fetchone()
+
+                        col_stats = {
+                            "column_name": col_name,
+                            "data_type": col[1],
+                            "is_nullable": is_nullable,
+                            "total_count": stats[0],
+                            "distinct_count": stats[1],
+                            "non_null_count": stats[2],
+                            "null_count": stats[0] - stats[2]
+                        }
+
+                        # Add min/max for numeric and date columns
+                        if any(t in col_type for t in ['int', 'numeric', 'decimal', 'float', 'double', 'real', 'money']):
+                            minmax_query = text(f"""
+                                SELECT
+                                    MIN("{col_name}")::text as min_value,
+                                    MAX("{col_name}")::text as max_value,
+                                    AVG("{col_name}")::numeric as avg_value
+                                FROM {table_name}
+                                WHERE "{col_name}" IS NOT NULL
+                            """)
+                            minmax_result = await conn.execute(minmax_query)
+                            minmax = minmax_result.fetchone()
+
+                            if minmax:
+                                col_stats["min_value"] = minmax[0]
+                                col_stats["max_value"] = minmax[1]
+                                col_stats["avg_value"] = float(minmax[2]) if minmax[2] is not None else None
+
+                        elif any(t in col_type for t in ['date', 'timestamp', 'time']):
+                            minmax_query = text(f"""
+                                SELECT
+                                    MIN("{col_name}")::text as min_value,
+                                    MAX("{col_name}")::text as max_value
+                                FROM {table_name}
+                                WHERE "{col_name}" IS NOT NULL
+                            """)
+                            minmax_result = await conn.execute(minmax_query)
+                            minmax = minmax_result.fetchone()
+
+                            if minmax:
+                                col_stats["min_value"] = minmax[0]
+                                col_stats["max_value"] = minmax[1]
+
+                        # Add sample values for all column types
+                        sample_query = text(f"""
+                            SELECT DISTINCT "{col_name}"
+                            FROM {table_name}
+                            WHERE "{col_name}" IS NOT NULL
+                            LIMIT 5
+                        """)
+                        sample_result = await conn.execute(sample_query)
+                        samples = sample_result.fetchall()
+                        col_stats["sample_values"] = [str(s[0]) for s in samples]
+
+                        column_stats[col_name] = col_stats
+
+                    except Exception as col_error:
+                        # If individual column fails, log and continue with basic info
+                        column_stats[col_name] = {
+                            "column_name": col_name,
+                            "data_type": col[1],
+                            "is_nullable": is_nullable,
+                            "error": str(col_error)
+                        }
+
+                return column_stats
+
+        except Exception as e:
+            return {"error": f"Failed to get column statistics: {str(e)}"}
     
     async def list_tables(self, database_id: str) -> List[Table]:
         """List tables for backward compatibility."""

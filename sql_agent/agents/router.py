@@ -98,14 +98,25 @@ class RouterAgent(BaseAgent):
         try:
             # Step 1: Check if we should use vector store or traditional RAG
             routing_strategy = await self._determine_routing_strategy(state)
-            
+            print(f"\n[ROUTER] Step 1: Routing strategy = {routing_strategy.get('strategy')}, use_vector_store = {routing_strategy.get('use_vector_store')}")
+
             # Step 2: Get relevant schema context using appropriate strategy
             if routing_strategy["use_vector_store"]:
+                print(f"[ROUTER] Step 2: Using vector-based context...")
                 schema_context, selected_tables = await self._get_vector_based_context(state)
+                print(f"[ROUTER] Step 2: Got {len(schema_context)} schema contexts, {len(selected_tables)} selected tables: {selected_tables}")
             else:
+                print(f"[ROUTER] Step 2: Using traditional context...")
                 schema_context = await self._get_traditional_context(state)
                 selected_tables = self._extract_tables_from_context(schema_context)
-            
+                print(f"[ROUTER] Step 2: Got {len(schema_context)} schema contexts, {len(selected_tables)} selected tables: {selected_tables}")
+
+            # CRITICAL FIX: If no tables selected, try to infer from query or use all tables
+            if not selected_tables:
+                print(f"[ROUTER] Step 2b: No tables selected! Attempting fallback table selection...")
+                selected_tables = await self._fallback_table_selection(state.query, state.database_name)
+                print(f"[ROUTER] Step 2b: Fallback selected {len(selected_tables)} tables: {selected_tables}")
+
             # Step 3: Analyze query intent with enhanced context
             intent_analysis = await self._analyze_intent_enhanced(
                 state.query, schema_context, selected_tables, routing_strategy
@@ -117,10 +128,30 @@ class RouterAgent(BaseAgent):
             )
             
             # Step 5: Enrich context for downstream agents
+            print(f"\n{'='*80}")
+            print(f"DEBUG ROUTER - Before enrichment:")
+            print(f"  Selected tables: {selected_tables}")
+            print(f"  Schema context count: {len(schema_context)}")
+            print(f"  Database name: {state.database_name}")
+            print(f"{'='*80}\n")
+
             enriched_context = await self._enrich_context_for_agents(
                 selected_tables, schema_context, state.database_name
             )
-            
+
+            print(f"\n{'='*80}")
+            print(f"DEBUG ROUTER - After enrichment:")
+            print(f"  Enriched context keys: {enriched_context.keys()}")
+            print(f"  Column contexts keys: {enriched_context.get('column_contexts', {}).keys()}")
+            if enriched_context.get('column_contexts'):
+                for table, cols in enriched_context['column_contexts'].items():
+                    print(f"  Table '{table}' has {len(cols)} columns")
+                    if cols:
+                        print(f"    First column sample: {cols[0]}")
+            else:
+                print(f"  WARNING: No column_contexts in enriched_context!")
+            print(f"{'='*80}\n")
+
             processing_time = time.time() - start_time
             
             # Log comprehensive routing decision
@@ -221,15 +252,23 @@ class RouterAgent(BaseAgent):
     async def _get_vector_based_context(self, state: AgentState) -> Tuple[List[SchemaContext], List[str]]:
         """Get context using vector store for intelligent table selection."""
         try:
+            print(f"[ROUTER-VECTOR] Querying vector store for tables...")
+            print(f"[ROUTER-VECTOR]   Query: {state.query}")
+            print(f"[ROUTER-VECTOR]   Database: {state.database_name}")
+            print(f"[ROUTER-VECTOR]   Limit: {self.config['max_tables_selection']}")
+
             # Get relevant tables using vector store
             selected_tables = await vector_store.get_tables_for_query(
                 query=state.query,
                 database_name=state.database_name,
                 limit=self.config["max_tables_selection"]
             )
-            
+
+            print(f"[ROUTER-VECTOR] Vector store returned {len(selected_tables)} tables: {selected_tables}")
+
             if not selected_tables:
                 self.logger.warning("no_tables_selected_from_vector_store", query=state.query[:100])
+                print(f"[ROUTER-VECTOR] WARNING: No tables selected! Returning empty")
                 return [], []
             
             # Get detailed context for selected tables
@@ -634,62 +673,136 @@ Respond in JSON format:
                 except Exception as e:
                     self.logger.warning("relationship_insights_failed", error=str(e))
             
-            # Add column context for detailed SQL generation with data types and sample data
+            # Add column context for detailed SQL generation with data types, statistics, and sample data
             if selected_tables:
+                print(f"\n[ENRICH] Starting column context enrichment for {len(selected_tables)} tables")
                 try:
-                    # Get column context from vector store
+                    from sql_agent.core.database import db_manager
+
+                    # Get comprehensive column statistics and metadata
                     column_contexts = {}
                     for table_name in selected_tables[:3]:  # Limit to top 3 tables
-                        table_context = await vector_store.get_table_context(table_name, database_name)
-                        if table_context.get("column_contexts"):
-                            # Enrich column contexts with detailed metadata for better SQL generation
-                            enriched_columns = []
-                            for col_ctx in table_context["column_contexts"]:
-                                metadata = col_ctx.get("metadata", {})
-                                enriched_col = {
-                                    "column_name": metadata.get("column_name", col_ctx.get("column_name", "")),
-                                    "data_type": metadata.get("data_type", "unknown"),
-                                    "nullable": metadata.get("is_nullable", True),
-                                    "primary_key": metadata.get("is_primary_key", False),
-                                    "foreign_key": metadata.get("is_foreign_key", False),
-                                    "business_concept": metadata.get("business_concept", ""),
-                                }
-                                enriched_columns.append(enriched_col)
+                        print(f"\n[ENRICH] Processing table: {table_name}")
+                        enriched_columns = []
 
-                            # Fetch sample data for this table to help LLM understand data patterns
-                            try:
-                                from sql_agent.core.database import db_manager
-                                sample_data = await db_manager.get_sample_data(table_name, limit=3)
-                                if sample_data and sample_data.get("data"):
-                                    # Add sample values to each column
-                                    sample_rows = sample_data["data"]
-                                    columns = sample_data.get("columns", [])
+                        try:
+                            # Get detailed column statistics including min/max/count/distinct
+                            print(f"[ENRICH]   Fetching column statistics...")
+                            col_stats = await db_manager.get_column_statistics(table_name)
+                            print(f"[ENRICH]   Got {len(col_stats)} columns from statistics")
 
-                                    for enriched_col in enriched_columns:
-                                        col_name = enriched_col["column_name"]
-                                        if col_name in columns:
-                                            col_idx = columns.index(col_name)
-                                            # Extract sample values for this column
-                                            sample_values = [
-                                                row[col_idx] for row in sample_rows
-                                                if col_idx < len(row) and row[col_idx] is not None
-                                            ]
-                                            enriched_col["sample_values"] = sample_values[:3]  # Max 3 samples
-                                        else:
-                                            enriched_col["sample_values"] = []
-                            except Exception as sample_err:
-                                self.logger.debug("sample_data_fetch_failed",
-                                                table=table_name,
-                                                error=str(sample_err))
-                                # Add empty sample values if fetch fails
-                                for enriched_col in enriched_columns:
-                                    enriched_col["sample_values"] = []
+                            if "error" not in col_stats:
+                                print(f"[ENRICH]   Column statistics successful, fetching vector context...")
+                                # Try to get additional context from vector store
+                                table_context = await vector_store.get_table_context(table_name, database_name)
+                                vector_columns = {}
 
-                            column_contexts[table_name] = enriched_columns
+                                if table_context.get("column_contexts"):
+                                    print(f"[ENRICH]   Vector store has {len(table_context['column_contexts'])} column contexts")
+                                    for col_ctx in table_context["column_contexts"]:
+                                        col_name = col_ctx.get("metadata", {}).get("column_name", col_ctx.get("column_name", ""))
+                                        if col_name:
+                                            vector_columns[col_name] = col_ctx.get("metadata", {})
+                                else:
+                                    print(f"[ENRICH]   No column contexts in vector store")
 
-                    enriched_context["column_contexts"] = column_contexts
+                                # Build enriched column information
+                                print(f"[ENRICH]   Building enriched columns from {len(col_stats)} statistics...")
+                                for col_name, stats in col_stats.items():
+                                    vector_meta = vector_columns.get(col_name, {})
+
+                                    enriched_col = {
+                                        "column_name": col_name,
+                                        "data_type": stats.get("data_type", "unknown"),
+                                        "nullable": stats.get("is_nullable", True),
+                                        "primary_key": vector_meta.get("is_primary_key", False),
+                                        "foreign_key": vector_meta.get("is_foreign_key", False),
+                                        "business_concept": vector_meta.get("business_concept", ""),
+                                        # Statistics
+                                        "total_count": stats.get("total_count"),
+                                        "distinct_count": stats.get("distinct_count"),
+                                        "null_count": stats.get("null_count"),
+                                        "min_value": stats.get("min_value"),
+                                        "max_value": stats.get("max_value"),
+                                        "avg_value": stats.get("avg_value"),
+                                        "sample_values": stats.get("sample_values", [])
+                                    }
+
+                                    # Remove None values for cleaner context
+                                    enriched_col = {k: v for k, v in enriched_col.items() if v is not None}
+                                    enriched_columns.append(enriched_col)
+
+                                print(f"[ENRICH]   Built {len(enriched_columns)} enriched columns")
+                                if enriched_columns:
+                                    print(f"[ENRICH]   Sample enriched column: {enriched_columns[0]}")
+
+                            else:
+                                print(f"[ENRICH]   Column statistics had error: {col_stats.get('error')}")
+                                print(f"[ENRICH]   Falling back to vector store only...")
+                                # Fallback: Try to get basic column info from vector store
+                                table_context = await vector_store.get_table_context(table_name, database_name)
+                                if table_context.get("column_contexts"):
+                                    for col_ctx in table_context["column_contexts"]:
+                                        metadata = col_ctx.get("metadata", {})
+                                        enriched_col = {
+                                            "column_name": metadata.get("column_name", col_ctx.get("column_name", "")),
+                                            "data_type": metadata.get("data_type", "unknown"),
+                                            "nullable": metadata.get("is_nullable", True),
+                                            "primary_key": metadata.get("is_primary_key", False),
+                                            "foreign_key": metadata.get("is_foreign_key", False),
+                                        }
+                                        enriched_columns.append(enriched_col)
+
+                                # Also try to fetch sample data
+                                try:
+                                    sample_data = await db_manager.get_sample_data(table_name, limit=3)
+                                    if sample_data and sample_data.get("data"):
+                                        sample_rows = sample_data["data"]
+                                        columns = sample_data.get("columns", [])
+
+                                        for enriched_col in enriched_columns:
+                                            col_name = enriched_col["column_name"]
+                                            if col_name in columns:
+                                                col_idx = columns.index(col_name)
+                                                sample_values = [
+                                                    row[col_idx] for row in sample_rows
+                                                    if col_idx < len(row) and row[col_idx] is not None
+                                                ]
+                                                enriched_col["sample_values"] = [str(v) for v in sample_values[:3]]
+                                except Exception:
+                                    pass
+
+                            if enriched_columns:
+                                column_contexts[table_name] = enriched_columns
+                                print(f"[ENRICH]   Added {len(enriched_columns)} columns for table '{table_name}'")
+                                self.logger.info("column_context_enriched",
+                                               table=table_name,
+                                               column_count=len(enriched_columns))
+                            else:
+                                print(f"[ENRICH]   WARNING: No enriched columns for table '{table_name}'")
+
+                        except Exception as table_err:
+                            print(f"[ENRICH]   ERROR enriching table '{table_name}': {table_err}")
+                            import traceback
+                            traceback.print_exc()
+                            self.logger.warning("table_context_enrichment_failed",
+                                              table=table_name,
+                                              error=str(table_err))
+
+                    print(f"\n[ENRICH] Final column_contexts has {len(column_contexts)} tables")
+                    if column_contexts:
+                        enriched_context["column_contexts"] = column_contexts
+                        print(f"[ENRICH] Successfully added column_contexts to enriched_context")
+                        self.logger.info("enriched_context_created",
+                                       tables=list(column_contexts.keys()),
+                                       total_columns=sum(len(cols) for cols in column_contexts.values()))
+                    else:
+                        print(f"[ENRICH] WARNING: No column_contexts created for any table!")
+                        self.logger.warning("no_column_contexts_created",
+                                          selected_tables=selected_tables)
+
                 except Exception as e:
-                    self.logger.warning("column_context_enrichment_failed", error=str(e))
+                    self.logger.error("column_context_enrichment_failed", error=str(e), exc_info=True)
             
             return enriched_context
             
@@ -790,5 +903,53 @@ Respond in JSON format:
         except Exception as e:
             health_status["status"] = "degraded"
             health_status["error"] = str(e)
-        
+
         return health_status
+
+    async def _fallback_table_selection(self, query: str, database_name: str) -> List[str]:
+        """Fallback table selection when RAG/vector store returns no tables.
+
+        Uses multiple strategies:
+        1. Extract table names from query text
+        2. Get all available tables from database
+        3. Use LLM to match query to tables
+        """
+        try:
+            from sql_agent.core.database import db_manager
+            import re
+
+            # Strategy 1: Extract table names from query text using simple pattern matching
+            query_lower = query.lower()
+            potential_tables = []
+
+            # Get all available tables from database
+            try:
+                schema_data = await db_manager.get_database_schema()
+                all_tables = [table["name"] for table in schema_data.get("tables", [])]
+                print(f"[FALLBACK] Found {len(all_tables)} total tables in database: {all_tables}")
+
+                # Check if any table name appears in the query
+                for table_name in all_tables:
+                    if table_name.lower() in query_lower:
+                        potential_tables.append(table_name)
+                        print(f"[FALLBACK] Found table '{table_name}' mentioned in query")
+
+                if potential_tables:
+                    print(f"[FALLBACK] Strategy 1 success: Found {len(potential_tables)} tables from query text")
+                    return potential_tables[:3]  # Limit to 3 tables
+
+                # Strategy 2: If no tables found in query, return all tables (let LLM decide)
+                if all_tables:
+                    print(f"[FALLBACK] Strategy 2: No tables found in query text, using all {len(all_tables)} tables")
+                    return all_tables[:3]  # Limit to 3 tables to avoid context overflow
+
+            except Exception as db_error:
+                print(f"[FALLBACK] Database query failed: {db_error}")
+
+            # Ultimate fallback: return empty (will trigger SQL agent's own fallback)
+            print(f"[FALLBACK] All strategies failed, returning empty")
+            return []
+
+        except Exception as e:
+            self.logger.error("fallback_table_selection_failed", error=str(e), exc_info=True)
+            return []
